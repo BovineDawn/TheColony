@@ -5,11 +5,11 @@ After each cycle, writes a full markdown report to docs/ld-reports/.
 """
 import asyncio
 import copy
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Awaitable
 from app.services.llm import call_agent
-from app.services.memory import inject_memory
 from app.db.database import SessionLocal
 from app.models.agent import AgentModel
 
@@ -21,6 +21,33 @@ OnMessage = Callable[[dict], Awaitable[None]]
 
 _last_run: datetime | None = None
 _is_running: bool = False
+_STATE_FILE = _PROJECT_ROOT / "docs" / "ld-state.json"
+
+
+def _load_persisted_state() -> None:
+    global _last_run
+    try:
+        if _STATE_FILE.exists():
+            data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
+            if data.get("last_run"):
+                _last_run = datetime.fromisoformat(data["last_run"])
+    except Exception:
+        pass
+
+
+def _save_persisted_state() -> None:
+    try:
+        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _STATE_FILE.write_text(
+            json.dumps({"last_run": _last_run.isoformat() if _last_run else None}),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+_load_persisted_state()
+
 
 def get_ld_status() -> dict:
     return {
@@ -522,8 +549,7 @@ SKILL_UPGRADES: [name:level,name:level — list ALL skills with their new level]
 RECOMMENDATION: [one sentence on what to focus on next cycle]"""
 
             try:
-                messages = inject_memory(ld_head, [{"role": "user", "content": review_prompt}])
-                response = await call_agent(ld_head, messages)
+                response = await call_agent(ld_head, [{"role": "user", "content": review_prompt}])
                 review_text = response.choices[0].message.content or ""
             except Exception as e:
                 review_text = f"ASSESSMENT: Review failed ({e})\nTRAINING_NEEDED: NO\nSKILL_UPGRADES: NONE\nRECOMMENDATION: Retry next cycle"
@@ -594,6 +620,7 @@ Be direct and professional."""
             summary = f"L&D cycle complete. Reviewed {len(colonists)} colonists. {len(training_plans)} training plans. {len(skill_updates)} skill updates."
 
         _last_run = datetime.utcnow()
+        _save_persisted_state()
 
         # ── Write the markdown report ────────────────────────────────────────
         report_filename = f"{_last_run.strftime('%Y-%m-%d_%H-%M-%S')}.md"

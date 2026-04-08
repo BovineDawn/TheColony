@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 import socketio
@@ -26,14 +26,23 @@ async def lifespan(app: FastAPI):
     yield
 
 async def _startup_ld():
-    """Run L&D cycle on startup if not recently run, then schedule daily."""
+    """Run L&D cycle on startup if not run in the last 24h, then schedule daily."""
     await asyncio.sleep(5)
     status = get_ld_status()
     if not status['is_running']:
-        async def broadcast(event: dict):
-            await sio.emit('colony_event', event)  # broadcast to ALL clients
-        asyncio.create_task(run_ld_cycle(broadcast))
-    # Schedule daily repeat
+        last_run_str = status.get('last_run')
+        should_run = True
+        if last_run_str:
+            try:
+                last_run_dt = datetime.fromisoformat(last_run_str)
+                elapsed = (datetime.now(timezone.utc) - last_run_dt.replace(tzinfo=timezone.utc)).total_seconds()
+                should_run = elapsed > 86400
+            except Exception:
+                pass
+        if should_run:
+            async def broadcast(event: dict):
+                await sio.emit('colony_event', event)
+            asyncio.create_task(run_ld_cycle(broadcast))
     asyncio.create_task(_daily_ld_scheduler())
 
 async def _daily_ld_scheduler():
@@ -80,60 +89,63 @@ async def send_mission(sid, data):
     Receive a mission from the frontend and run it through the colony.
     data: { title, description, priority, msg_type, agents: [...] }
     """
-    db = SessionLocal()
+    # ── Setup: persist mission + load agents, then close the session ──
+    mission_id = str(uuid.uuid4())
     try:
-        # Persist the mission
-        mission_id = str(uuid.uuid4())
-        mission = MissionModel(
-            id=mission_id,
-            title=data.get("title", "Untitled Mission"),
-            description=data.get("description", ""),
-            priority=data.get("priority", "normal"),
-            status="in_progress",
-        )
-        db.add(mission)
+        db = SessionLocal()
+        try:
+            mission_obj = MissionModel(
+                id=mission_id,
+                title=data.get("title", "Untitled Mission"),
+                description=data.get("description", ""),
+                priority=data.get("priority", "normal"),
+                status="in_progress",
+            )
+            db.add(mission_obj)
 
-        # Save founder's initial message
-        founder_agent = db.query(AgentModel).filter(AgentModel.is_founder == True).first()
-        executive_agent = db.query(AgentModel).filter(
-            AgentModel.tier == "executive",
-            AgentModel.is_founder == False,
-            AgentModel.is_active == True
-        ).first()
+            founder_agent = db.query(AgentModel).filter(AgentModel.is_founder == True).first()
+            executive_agent = db.query(AgentModel).filter(
+                AgentModel.tier == "executive",
+                AgentModel.is_founder == False,
+                AgentModel.is_active == True,
+            ).first()
 
-        founder_id = founder_agent.id if founder_agent else "founder"
-        exec_id = executive_agent.id if executive_agent else "exec"
+            founder_id = founder_agent.id if founder_agent else "founder"
+            exec_id = executive_agent.id if executive_agent else "exec"
 
-        init_msg = MessageModel(
-            id=str(uuid.uuid4()),
-            mission_id=mission_id,
-            from_agent_id=founder_id,
-            to_agent_id=exec_id,
-            content=data.get("description", ""),
-            msg_type=data.get("msg_type", "chat"),
-            is_internal=False,
-        )
-        db.add(init_msg)
-        db.commit()
+            init_msg = MessageModel(
+                id=str(uuid.uuid4()),
+                mission_id=mission_id,
+                from_agent_id=founder_id,
+                to_agent_id=exec_id,
+                content=data.get("description", ""),
+                msg_type=data.get("msg_type", "chat"),
+                is_internal=False,
+            )
+            db.add(init_msg)
+            db.commit()
 
-        # Get all active agents as dicts for the orchestrator
-        db_agents = db.query(AgentModel).filter(AgentModel.is_active == True).all()
-        agent_dicts = []
-        for a in db_agents:
-            agent_dicts.append({
-                "id": a.id,
-                "employee_id": a.employee_id,
-                "name": a.name,
-                "role": a.role,
-                "tier": a.tier,
-                "department": a.department,
-                "model": a.model,
-                "personality_note": a.personality_note,
-                "skills": a.skills or [],
-                "memory_context": a.memory_context or "",
-                "is_founder": a.is_founder,
-                "manager_id": a.manager_id,
-            })
+            db_agents = db.query(AgentModel).filter(AgentModel.is_active == True).all()
+            agent_dicts = [
+                {
+                    "id": a.id,
+                    "employee_id": a.employee_id,
+                    "name": a.name,
+                    "role": a.role,
+                    "tier": a.tier,
+                    "department": a.department,
+                    "model": a.model,
+                    "personality_note": a.personality_note,
+                    "skills": a.skills or [],
+                    "memory_context": a.memory_context or "",
+                    "is_founder": a.is_founder,
+                    "manager_id": a.manager_id,
+                    "quality_score": a.quality_score,
+                }
+                for a in db_agents
+            ]
+        finally:
+            db.close()
 
         mission_dict = {
             "id": mission_id,
@@ -143,35 +155,52 @@ async def send_mission(sid, data):
         }
 
         async def on_message(event: dict):
-            """Relay every event to the frontend via Socket.IO."""
+            """Relay every event to the frontend via Socket.IO, then write to DB."""
             await sio.emit("colony_event", event, to=sid)
 
-            # Persist agent messages to DB
-            if event.get("type") == "agent_message" and not event.get("msg_type") == "internal":
-                msg = MessageModel(
-                    id=str(uuid.uuid4()),
-                    mission_id=mission_id,
-                    from_agent_id=event.get("from_id", ""),
-                    to_agent_id=event.get("to_id", ""),
-                    content=event.get("content", ""),
-                    msg_type=event.get("msg_type", "chat"),
-                    is_internal=False,
-                )
-                db.add(msg)
-                db.commit()
+            if event.get("type") == "agent_message" and event.get("msg_type") != "internal":
+                _db = SessionLocal()
+                try:
+                    _db.add(MessageModel(
+                        id=str(uuid.uuid4()),
+                        mission_id=mission_id,
+                        from_agent_id=event.get("from_id", ""),
+                        to_agent_id=event.get("to_id", ""),
+                        content=event.get("content", ""),
+                        msg_type=event.get("msg_type", "chat"),
+                        is_internal=False,
+                    ))
+                    _db.commit()
+                except Exception:
+                    _db.rollback()
+                finally:
+                    _db.close()
 
-            # Update agent status
             if event.get("type") == "status_update":
-                agent = db.query(AgentModel).filter(AgentModel.id == event.get("agent_id")).first()
-                if agent:
-                    agent.status = event.get("status", "idle")
-                    db.commit()
+                _db = SessionLocal()
+                try:
+                    agent = _db.query(AgentModel).filter(AgentModel.id == event.get("agent_id")).first()
+                    if agent:
+                        agent.status = event.get("status", "idle")
+                        _db.commit()
+                except Exception:
+                    _db.rollback()
+                finally:
+                    _db.close()
 
         await run_mission(mission_dict, agent_dicts, on_message)
 
         # Mark mission complete
-        mission.status = "completed"
-        db.commit()
+        _db = SessionLocal()
+        try:
+            m = _db.query(MissionModel).filter(MissionModel.id == mission_id).first()
+            if m:
+                m.status = "completed"
+                _db.commit()
+        except Exception:
+            _db.rollback()
+        finally:
+            _db.close()
 
     except Exception as e:
         await sio.emit("colony_event", {
@@ -179,8 +208,6 @@ async def send_mission(sid, data):
             "text": str(e),
             "timestamp": datetime.utcnow().isoformat(),
         }, to=sid)
-    finally:
-        db.close()
 
 @sio.event
 async def run_ld(sid, data):

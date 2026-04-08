@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client'
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 // ---- REST client ----
 export const api = {
@@ -22,7 +22,7 @@ let socket: Socket | null = null
 
 export function getSocket(): Socket {
   if (!socket) {
-    socket = io('http://localhost:8000', {
+    socket = io(API_BASE, {
       transports: ['websocket'],
       autoConnect: false,
     })

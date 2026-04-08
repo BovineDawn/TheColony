@@ -12,16 +12,44 @@ The orchestrator:
 5. Results bubble back up as updates
 """
 import asyncio
+import re
 from datetime import datetime
 from typing import Callable, Awaitable
 
 from app.services.llm import call_agent
-from app.services.memory import compress_memory, inject_memory
+from app.services.memory import compress_memory
 from app.services.quality import score_response, should_flag_for_strike, update_rolling_score
 from app.db.database import SessionLocal
 from app.models.agent import AgentModel
 
 OnMessage = Callable[[dict], Awaitable[None]]
+
+
+def _parse_involved_departments(exec_text: str) -> set[str]:
+    """
+    Extract department names from the executive's ACTION PLAN section.
+    Returns a set of lowercase tokens; empty set means dispatch all managers.
+    """
+    plan_match = re.search(r'ACTION PLAN:(.*?)(?:TIMELINE:|$)', exec_text, re.DOTALL | re.IGNORECASE)
+    if not plan_match:
+        return set()
+    departments: set[str] = set()
+    for line in plan_match.group(1).split('\n'):
+        line = line.strip()
+        if line.startswith('-') and ':' in line:
+            label = line[1:].split(':', 1)[0].strip().lower()
+            if label:
+                departments.add(label)
+    return departments
+
+
+def _manager_is_involved(manager: dict, involved: set[str]) -> bool:
+    """Return True if this manager's department appears in the involved set."""
+    if not involved:
+        return True  # no departments parsed — dispatch all
+    dept = manager.get('department', '').lower()
+    role = manager.get('role', '').lower()
+    return any(dept in token or token in dept or token in role for token in involved)
 
 
 async def _update_agent_memory(agent_id: str, new_memory: str) -> None:
@@ -78,8 +106,7 @@ Complete the specific portion of this work that falls within your expertise. Be 
     })
 
     try:
-        messages = inject_memory(worker, [{"role": "user", "content": worker_prompt}])
-        resp = await call_agent(worker, messages)
+        resp = await call_agent(worker, [{"role": "user", "content": worker_prompt}])
         worker_text = resp.choices[0].message.content or ""
 
         await on_message({
@@ -144,8 +171,7 @@ ACTION PLAN:
 - ...
 TIMELINE: [estimated completion]"""
 
-    exec_messages = inject_memory(executive, [{"role": "user", "content": exec_prompt}])
-    exec_response = await call_agent(executive, exec_messages)
+    exec_response = await call_agent(executive, [{"role": "user", "content": exec_prompt}])
     exec_text = exec_response.choices[0].message.content or ""
 
     await on_message({
@@ -159,14 +185,16 @@ TIMELINE: [estimated completion]"""
         "timestamp": datetime.utcnow().isoformat(),
     })
 
-    # Step 2 — Parse which departments are involved and dispatch
+    # Step 2 — Parse which departments are involved and dispatch only those managers
     managers = [a for a in agents if a.get("tier") == "manager"]
+    involved_depts = _parse_involved_departments(exec_text)
+    active_managers = [m for m in managers if _manager_is_involved(m, involved_depts)]
     results = []
 
     # Track per-manager data for post-mission memory compression
     manager_conversations = {}
 
-    for manager in managers:
+    for manager in active_managers:
         dept_task_prompt = f"""You have been assigned a sub-task from the Sr. Executive for the following mission:
 
 MISSION: {mission['title']}
@@ -200,8 +228,7 @@ Be specific, thorough, and professional. Return your findings/work product."""
 
         mgr_text = ""
         try:
-            mgr_messages = inject_memory(manager, [{"role": "user", "content": dept_task_prompt}])
-            mgr_response = await call_agent(manager, mgr_messages)
+            mgr_response = await call_agent(manager, [{"role": "user", "content": dept_task_prompt}])
             mgr_text = mgr_response.choices[0].message.content or ""
 
             # --- Task 3: Worker delegation ---
@@ -228,8 +255,7 @@ Be specific, thorough, and professional. Return your findings/work product."""
 
 Now provide a final synthesis of all work completed, integrating the team's contributions into a cohesive department report."""
 
-                synthesis_messages = inject_memory(manager, [{"role": "user", "content": synthesis_prompt}])
-                synthesis_response = await call_agent(manager, synthesis_messages)
+                synthesis_response = await call_agent(manager, [{"role": "user", "content": synthesis_prompt}])
                 mgr_text = synthesis_response.choices[0].message.content or mgr_text
 
             results.append(f"[{manager['name']} — {manager['role']}]\n{mgr_text}")
@@ -295,8 +321,7 @@ Now compile a comprehensive final report for the Founder. Include:
 
 Format it professionally as a formal report."""
 
-    compile_messages = inject_memory(executive, [{"role": "user", "content": compile_prompt}])
-    final_response = await call_agent(executive, compile_messages)
+    final_response = await call_agent(executive, [{"role": "user", "content": compile_prompt}])
     final_text = final_response.choices[0].message.content or ""
 
     await on_message({
