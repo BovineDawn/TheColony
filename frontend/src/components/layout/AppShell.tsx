@@ -14,7 +14,8 @@ import {
   LayoutDashboard, Map, MessageSquare, GitBranch,
   UserPlus, Settings, Users, Wifi, WifiOff, Activity, Bell,
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { api } from '../../lib/api'
 
 const NAV_ITEMS = [
   { id: 'dashboard',       icon: LayoutDashboard, label: 'Dashboard'       },
@@ -39,7 +40,7 @@ export function AppShell() {
 
   useEffect(() => {
     const check = () =>
-      fetch('http://localhost:8000/health')
+      api.get('/health')
         .then(() => setBackendOnline(true))
         .catch(() => setBackendOnline(false))
     check()
@@ -280,22 +281,37 @@ export function AppShell() {
 
           <div style={{ flex: 1 }} />
 
-          {/* CENTER: live activity pill */}
+          {/* CENTER: live activity strip — shows who is working and navigates to Mission Control */}
           {activeAgents.length > 0 && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 7,
-              padding: '4px 12px', borderRadius: 20,
-              backgroundColor: 'hsl(189 100% 50% / 0.07)',
-              border: '1px solid hsl(189 100% 50% / 0.22)',
-            }}>
+            <button
+              onClick={() => setActiveView('mission-control')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 14px', borderRadius: 20,
+                backgroundColor: 'hsl(189 100% 50% / 0.07)',
+                border: '1px solid hsl(189 100% 50% / 0.22)',
+                cursor: 'pointer',
+                transition: 'background 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.backgroundColor = 'hsl(189 100% 50% / 0.13)'
+                e.currentTarget.style.borderColor = 'hsl(189 100% 50% / 0.4)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.backgroundColor = 'hsl(189 100% 50% / 0.07)'
+                e.currentTarget.style.borderColor = 'hsl(189 100% 50% / 0.22)'
+              }}
+            >
               <Activity size={10} style={{ color: 'var(--color-primary)' }} className="animate-pulse" />
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: '9px',
-                letterSpacing: '0.1em', color: 'var(--color-primary)',
+                letterSpacing: '0.08em', color: 'var(--color-primary)',
               }}>
-                {activeAgents.length} AGENT{activeAgents.length > 1 ? 'S' : ''} ACTIVE
+                {activeAgents.slice(0, 3).map(a => a.name).join(' · ')}
+                {activeAgents.length > 3 ? ` +${activeAgents.length - 3}` : ''}
+                {' — WORKING'}
               </span>
-            </div>
+            </button>
           )}
 
           {/* RIGHT: metrics */}

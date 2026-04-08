@@ -2,12 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Send, Loader2, Radio, FileText, ChevronDown,
-  ChevronUp, Sparkles, MessageSquare, History
+  ChevronUp, Sparkles, MessageSquare, History, Play
 } from 'lucide-react'
 import { useColonyStore } from '../../stores/colonyStore'
 import { useMissionHistoryStore } from '../../stores/missionHistoryStore'
 import { useActivityStore } from '../../stores/activityStore'
 import { connectSocket, api } from '../../lib/api'
+import { playDemo, DEMO_PROMPT, DEMO_TITLE } from '../../lib/demoPlayback'
 import type { Socket } from 'socket.io-client'
 
 type Mode = 'chat' | 'formal'
@@ -71,6 +72,8 @@ export function MissionControl() {
   const socketRef = useRef<Socket | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const eventHandlerRef = useRef<((event: ColonyEvent) => void) | null>(null)
+  const demoCleanupRef = useRef<(() => void) | null>(null)
 
   const executive = agents.find(a => a.tier === 'executive' && !a.isFounder)
   const founder   = agents.find(a => a.isFounder)
@@ -81,116 +84,121 @@ export function MissionControl() {
       .catch(() => setBackendOnline(false))
   }, [])
 
+  // ── Extracted event handler (used by both socket and demo playback) ────────
+  const handleColonyEvent = useCallback((event: ColonyEvent) => {
+    if (!event?.type) return
+    setAuditEvents(prev => [...prev, event])
+
+    if (event.type === 'agent_stream_start') {
+      setMessages(prev => [...prev, {
+        id: event.stream_id,
+        role: 'executive',
+        content: '',
+        name: event.from_name,
+        msgType: event.msg_type,
+        timestamp: event.timestamp,
+        isFormal: event.msg_type === 'formal_report',
+        streaming: true,
+      }])
+    }
+
+    if (event.type === 'agent_stream_chunk') {
+      setMessages(prev => prev.map(m =>
+        m.id === event.stream_id ? { ...m, content: m.content + event.chunk } : m
+      ))
+    }
+
+    if (event.type === 'agent_stream_end') {
+      setMessages(prev => prev.map(m =>
+        m.id === event.stream_id
+          ? { ...m, content: event.content, streaming: false, missionTitle: event.mission_title }
+          : m
+      ))
+    }
+
+    if (event.type === 'agent_message' && event.msg_type !== 'internal') {
+      setMessages(prev => [...prev, {
+        id: `${Date.now()}-${Math.random()}`,
+        role: 'executive',
+        content: event.content || '',
+        name: event.from_name,
+        msgType: event.msg_type,
+        timestamp: event.timestamp,
+        isFormal: event.msg_type === 'formal_report',
+        missionTitle: event.mission_title,
+      }])
+    }
+
+    if (event.type === 'status_update') {
+      const name = event.agent_name || ''
+      if (event.status === 'working') {
+        setActiveAgents(prev => new Set([...prev, name]))
+      } else {
+        setActiveAgents(prev => { const s = new Set(prev); s.delete(name); return s })
+      }
+      const agentId = agents.find(a => a.name === name)?.id
+      if (agentId) updateAgent(agentId, { status: (event.status || 'idle') as any })
+    }
+
+    if (event.type === 'status') {
+      setMessages(prev => [...prev, {
+        id: `sys-${Date.now()}`,
+        role: 'system',
+        content: event.text || '',
+        timestamp: event.timestamp,
+      }])
+    }
+
+    if (event.type === 'mission_complete') {
+      setIsRunning(false)
+      setActiveAgents(new Set())
+      setMessages(prev => {
+        const finalMessages = [...prev, {
+          id: `done-${Date.now()}`,
+          role: 'system' as const,
+          content: '✓ Mission complete',
+          timestamp: event.timestamp,
+        }]
+        const mTitle = currentMissionTitleRef.current || 'Untitled Mission'
+        saveMission({
+          id: `mission-${Date.now()}`,
+          title: mTitle,
+          completedAt: new Date().toISOString(),
+          messages: finalMessages,
+        })
+        addEvent({ type: 'mission_complete', message: `Mission complete: ${mTitle}` })
+        return finalMessages
+      })
+    }
+
+    if (event.type === 'error') {
+      setIsRunning(false)
+      setMessages(prev => [...prev, {
+        id: `err-${Date.now()}`,
+        role: 'system',
+        content: `Error: ${event.text}`,
+        timestamp: event.timestamp,
+      }])
+    }
+  }, [agents, updateAgent, saveMission, addEvent])
+
+  // Keep ref pointing at the latest handler so the stable socket listener
+  // always calls the current version without re-subscribing.
+  useEffect(() => { eventHandlerRef.current = handleColonyEvent }, [handleColonyEvent])
+
+  // ── Socket listener (set up once) ────────────────────────────────────────
   useEffect(() => {
     const socket = connectSocket()
     socketRef.current = socket
-
     socket.on('connected', () => setBackendOnline(true))
-
-    socket.on('colony_event', (event: ColonyEvent) => {
-      setAuditEvents(prev => [...prev, event])
-
-      // ── Streaming: exec types token-by-token ──────────────────────────────
-      if (event.type === 'agent_stream_start') {
-        setMessages(prev => [...prev, {
-          id: event.stream_id,
-          role: 'executive',
-          content: '',
-          name: event.from_name,
-          msgType: event.msg_type,
-          timestamp: event.timestamp,
-          isFormal: event.msg_type === 'formal_report',
-          streaming: true,
-        }])
-      }
-
-      if (event.type === 'agent_stream_chunk') {
-        setMessages(prev => prev.map(m =>
-          m.id === event.stream_id
-            ? { ...m, content: m.content + event.chunk }
-            : m
-        ))
-      }
-
-      if (event.type === 'agent_stream_end') {
-        setMessages(prev => prev.map(m =>
-          m.id === event.stream_id
-            ? { ...m, content: event.content, streaming: false, missionTitle: event.mission_title }
-            : m
-        ))
-      }
-
-      if (event.type === 'agent_message' && event.msg_type !== 'internal') {
-        setMessages(prev => [...prev, {
-          id: `${Date.now()}-${Math.random()}`,
-          role: 'executive',
-          content: event.content || '',
-          name: event.from_name,
-          msgType: event.msg_type,
-          timestamp: event.timestamp,
-          isFormal: event.msg_type === 'formal_report',
-          missionTitle: event.mission_title,
-        }])
-      }
-
-      if (event.type === 'status_update') {
-        const name = event.agent_name || ''
-        if (event.status === 'working') {
-          setActiveAgents(prev => new Set([...prev, name]))
-        } else {
-          setActiveAgents(prev => { const s = new Set(prev); s.delete(name); return s })
-        }
-        const agentId = agents.find(a => a.name === name)?.id
-        if (agentId) updateAgent(agentId, { status: (event.status || 'idle') as any })
-      }
-
-      if (event.type === 'status') {
-        setMessages(prev => [...prev, {
-          id: `sys-${Date.now()}`,
-          role: 'system',
-          content: event.text || '',
-          timestamp: event.timestamp,
-        }])
-      }
-
-      if (event.type === 'mission_complete') {
-        setIsRunning(false)
-        setActiveAgents(new Set())
-        setMessages(prev => {
-          const finalMessages = [...prev, {
-            id: `done-${Date.now()}`,
-            role: 'system' as const,
-            content: '✓ Mission complete',
-            timestamp: event.timestamp,
-          }]
-          const mTitle = currentMissionTitleRef.current || 'Untitled Mission'
-          saveMission({
-            id: `mission-${Date.now()}`,
-            title: mTitle,
-            completedAt: new Date().toISOString(),
-            messages: finalMessages,
-          })
-          addEvent({ type: 'mission_complete', message: `Mission complete: ${mTitle}` })
-          return finalMessages
-        })
-      }
-
-      if (event.type === 'error') {
-        setIsRunning(false)
-        setMessages(prev => [...prev, {
-          id: `err-${Date.now()}`,
-          role: 'system',
-          content: `Error: ${event.text}`,
-          timestamp: event.timestamp,
-        }])
-      }
-    })
-
+    // Stable wrapper — safe for socket.off
+    const stableHandler = (event: ColonyEvent) => eventHandlerRef.current?.(event)
+    socket.on('colony_event', stableHandler)
     return () => {
       socket.off('connected')
-      socket.off('colony_event')
+      socket.off('colony_event', stableHandler)
     }
-  }, [agents, updateAgent])
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -229,6 +237,22 @@ export function MissionControl() {
     setFormalTitle('')
     textareaRef.current?.focus()
   }
+
+  const handleRunDemo = useCallback(() => {
+    demoCleanupRef.current?.()
+    setCurrentMissionTitle(DEMO_TITLE)
+    setMessages([{
+      id: 'demo-founder',
+      role: 'founder',
+      content: DEMO_PROMPT,
+      name: founder?.name || 'You',
+      timestamp: new Date().toISOString(),
+    }])
+    setIsRunning(true)
+    setAuditEvents([])
+    setActiveAgents(new Set())
+    demoCleanupRef.current = playDemo(event => eventHandlerRef.current?.(event))
+  }, [founder])
 
   const priorityColors = {
     normal: 'var(--color-text-muted)',
@@ -420,7 +444,7 @@ export function MissionControl() {
               </p>
             </div>
 
-            {backendOnline && (
+            {backendOnline ? (
               <div className="flex flex-col gap-2 w-full max-w-sm">
                 {EXAMPLE_PROMPTS.map(prompt => (
                   <button key={prompt}
@@ -443,6 +467,37 @@ export function MissionControl() {
                     {prompt}
                   </button>
                 ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <button
+                  onClick={handleRunDemo}
+                  disabled={isRunning}
+                  className="flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-mono text-xs transition-all"
+                  style={{
+                    backgroundColor: 'hsl(42 65% 52% / 0.1)',
+                    border: '1px solid hsl(42 65% 52% / 0.4)',
+                    color: 'hsl(42 65% 52%)',
+                    cursor: isRunning ? 'not-allowed' : 'pointer',
+                    letterSpacing: '0.1em',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isRunning) {
+                      e.currentTarget.style.backgroundColor = 'hsl(42 65% 52% / 0.18)'
+                      e.currentTarget.style.borderColor = 'hsl(42 65% 52% / 0.7)'
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.backgroundColor = 'hsl(42 65% 52% / 0.1)'
+                    e.currentTarget.style.borderColor = 'hsl(42 65% 52% / 0.4)'
+                  }}
+                >
+                  <Play size={12} />
+                  RUN DEMO MISSION
+                </button>
+                <p className="font-mono text-xs" style={{ color: 'var(--color-text-muted)', opacity: 0.5 }}>
+                  Simulates a full mission — no API key needed
+                </p>
               </div>
             )}
           </div>
