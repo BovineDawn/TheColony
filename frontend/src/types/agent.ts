@@ -2,7 +2,7 @@ export type AgentStatus = 'idle' | 'thinking' | 'working' | 'chatting' | 'traini
 export type AgentTier = 'founder' | 'executive' | 'manager' | 'worker'
 export type Department = 'executive' | 'engineering' | 'research' | 'writing' | 'legal' | 'ld'
 export type AIModel = 'claude-3-5-sonnet' | 'gpt-4o' | 'gemini-1.5-pro'
-export type SkillLevel = 'junior' | 'mid' | 'senior' | 'expert'
+export type SkillLevel = 'junior' | 'mid' | 'senior' | 'advanced' | 'expert'
 
 export interface AgentSkill {
   name: string
@@ -45,4 +45,5 @@ export interface Agent {
   memoryContext: string
   isFounder: boolean
   tilePosition: { x: number; y: number }
+  qualityScore?: number
 }

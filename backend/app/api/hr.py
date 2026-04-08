@@ -8,6 +8,7 @@ from typing import Optional
 import uuid
 from datetime import datetime
 
+import litellm
 from app.db.database import get_db
 from app.models.agent import AgentModel
 from app.models.hr import StrikeModel, TrainingSessionModel, HiringRecModel, RewardModel
@@ -276,6 +277,80 @@ def grant_reward(data: RewardCreate, db: Session = Depends(get_db)):
 
     db.commit()
     return {"success": True, "reward_id": reward.id}
+
+# ── AI Candidate Generation ────────────────────────────
+class GenerateCandidateRequest(BaseModel):
+    role: str
+    department: str
+    model: str = "claude-3-5-sonnet"
+
+_VALID_LEVELS = {'junior', 'mid', 'senior', 'advanced', 'expert'}
+_MODEL_MAP = {
+    "claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
+    "gpt-4o": "gpt-4o",
+    "gemini-1.5-pro": "gemini/gemini-1.5-pro",
+}
+
+@router.post("/generate-candidate")
+async def generate_founding_candidate(data: GenerateCandidateRequest):
+    prompt = f"""Generate a unique AI agent character for The Colony — a futuristic workforce simulation.
+
+POSITION: {data.role}
+DEPARTMENT: {data.department.upper()}
+POWERED BY: {data.model}
+
+Rules:
+- NAME must be a short all-caps codename (4-6 letters, one word, not a real name)
+- PERSONALITY must be ONE specific working trait — no generic phrases like "hardworking" or "dedicated"
+- SKILLS must be relevant to the role (4 skills)
+- RECOMMENDATION must read like a real hiring manager pitch (2-3 sentences)
+
+Respond in EXACTLY this format (no extra lines, no preamble):
+NAME: [CODENAME]
+PERSONALITY: [one sentence]
+SKILLS: [skill_name:level,skill_name:level,skill_name:level,skill_name:level]
+RECOMMENDATION: [2-3 sentences]
+
+Valid skill levels: junior, mid, senior, advanced, expert"""
+
+    try:
+        model = _MODEL_MAP.get(data.model, "claude-3-5-sonnet-20241022")
+        response = await litellm.acompletion(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.choices[0].message.content or ""
+
+        def _field(key: str) -> str:
+            for line in text.split('\n'):
+                if line.startswith(f'{key}:'):
+                    return line[len(key) + 1:].strip()
+            return ''
+
+        name = _field('NAME') or data.role.split()[0].upper()[:6]
+        personality = _field('PERSONALITY') or f'Driven specialist in {data.role}.'
+        recommendation = _field('RECOMMENDATION') or f'A strong candidate for the {data.role} position.'
+
+        skills = []
+        for pair in _field('SKILLS').split(','):
+            pair = pair.strip()
+            if ':' in pair:
+                sname, slevel = pair.split(':', 1)
+                slevel = slevel.strip().lower()
+                if slevel in _VALID_LEVELS:
+                    skills.append({"name": sname.strip(), "level": slevel})
+        if not skills:
+            skills = [{"name": "Domain Expertise", "level": "senior"}]
+
+        return {
+            "name": name,
+            "personalityNote": personality,
+            "skills": skills,
+            "recommendation": recommendation,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Generation unavailable: {str(e)}")
+
 
 # ── Helpers ────────────────────────────────────────────
 def strike_dict(s: StrikeModel) -> dict:

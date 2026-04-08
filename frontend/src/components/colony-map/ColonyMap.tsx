@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Application, Graphics, Text, TextStyle, Container } from 'pixi.js'
+import { Camera } from 'lucide-react'
 import { useColonyStore } from '../../stores/colonyStore'
 import { useUIStore } from '../../stores/uiStore'
 import { departmentColors } from '../../lib/departments'
@@ -40,6 +41,18 @@ export function ColonyMap() {
   const { agents } = useColonyStore()
   const { setSelectedAgent, setActivePanel } = useUIStore()
 
+  const handleExport = useCallback(() => {
+    const app = appRef.current
+    if (!app) return
+    const url = (app.canvas as HTMLCanvasElement).toDataURL('image/png')
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `the-colony-${new Date().toISOString().slice(0, 10)}.png`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }, [])
+
   // ── Initialize Pixi once ──
   useEffect(() => {
     if (!containerRef.current || appRef.current) return
@@ -48,12 +61,13 @@ export function ColonyMap() {
     let mounted = true
 
     app.init({
-      width:       COLS * TILE,
-      height:      ROWS * TILE,
-      background:  0x090D16,   // slightly deeper than bg css var
-      antialias:   true,
-      resolution:  window.devicePixelRatio || 1,
-      autoDensity: true,
+      width:                COLS * TILE,
+      height:               ROWS * TILE,
+      background:           0x090D16,
+      antialias:            true,
+      resolution:           window.devicePixelRatio || 1,
+      autoDensity:          true,
+      preserveDrawingBuffer: true,  // enables canvas.toDataURL() for PNG export
     }).then(() => {
       if (!mounted || !containerRef.current) return
 
@@ -159,7 +173,12 @@ export function ColonyMap() {
       layer.children.forEach((child: any) => {
         const ud     = child.userData as Record<string, any> | undefined
         if (!ud) return
-        const { dot, border, status, isFounder } = ud
+        const { dot, border, status, isFounder, moodGlow } = ud
+
+        // Animate mood glow ring independently of status
+        if (moodGlow) {
+          moodGlow.alpha = 0.35 + 0.3 * (0.5 + 0.5 * Math.sin(t * 1.2))
+        }
 
         if (status === 'working') {
           const p = 0.5 + 0.5 * Math.sin(t * 3.5)
@@ -201,9 +220,55 @@ export function ColonyMap() {
           INITIALIZING COLONY MAP...
         </div>
       )}
+      {appReady && (
+        <button
+          onClick={handleExport}
+          title="Export colony map as PNG"
+          style={{
+            position: 'absolute', top: 12, right: 12,
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 10px',
+            backgroundColor: 'hsl(215 22% 6% / 0.85)',
+            border: '1px solid hsl(215 22% 20%)',
+            borderRadius: 6,
+            color: '#5A6A7A',
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 10,
+            letterSpacing: '0.1em',
+            cursor: 'pointer',
+            backdropFilter: 'blur(4px)',
+            transition: 'color 0.15s, border-color 0.15s',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.color = '#B8922A'
+            e.currentTarget.style.borderColor = 'hsl(42 65% 52% / 0.5)'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.color = '#5A6A7A'
+            e.currentTarget.style.borderColor = 'hsl(215 22% 20%)'
+          }}
+        >
+          <Camera size={12} />
+          EXPORT
+        </button>
+      )}
       <LDActivityOverlay />
     </div>
   )
+}
+
+// ══════════════════════════════════════════════════════════
+//  Mood glow — driven by quality score + strike count
+// ══════════════════════════════════════════════════════════
+function getMoodGlow(agent: Agent): { color: number; alpha: number } | null {
+  const strikes = agent.strikes?.length ?? 0
+  const quality = agent.qualityScore ?? 100
+
+  if (strikes >= 3)   return { color: 0xEF4444, alpha: 0.55 }  // danger — escalation threshold
+  if (strikes >= 1)   return { color: 0xF59E0B, alpha: 0.45 }  // warning — on record
+  if (quality < 60)   return { color: 0xF97316, alpha: 0.40 }  // poor quality
+  if (quality >= 90)  return { color: 0x10B981, alpha: 0.22 }  // high performer
+  return null
 }
 
 // ══════════════════════════════════════════════════════════
@@ -234,8 +299,19 @@ function buildAgentTile(agent: Agent, onClick: () => void): Container {
   border.stroke({ color: borderCol, alpha: borderAlpha, width: isFounder ? 1.5 : 1 })
   c.addChild(border)
 
+  // ── Mood glow ring ──
+  const mood = getMoodGlow(agent)
+  let moodGlow: Graphics | null = null
+  if (mood) {
+    moodGlow = new Graphics()
+    moodGlow.roundRect(7, 7, TILE - 14, TILE - 14, 6)
+    moodGlow.stroke({ color: mood.color, alpha: mood.alpha, width: 1.5 })
+    moodGlow.alpha = mood.alpha
+    c.addChild(moodGlow)
+  }
+
   // Tag userData for the ticker to animate
-  ;(c as any).userData = { status: agent.status, isFounder, dot: null as any, border }
+  ;(c as any).userData = { status: agent.status, isFounder, dot: null as any, border, moodGlow }
 
   // ── Top dept color stripe ──
   const stripe = new Graphics()

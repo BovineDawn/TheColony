@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Loader2 } from 'lucide-react'
 import { useColonyStore } from '../../stores/colonyStore'
 import { HireCard } from './HireCard'
-import { connectSocket } from '../../lib/api'
+import { connectSocket, api } from '../../lib/api'
 import type { Agent, Department, AIModel, AgentSkill } from '../../types/agent'
 
 interface FoundingCandidate {
@@ -123,10 +124,46 @@ interface OnboardingFlowProps {
 export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [hireIndex, setHireIndex] = useState(0)
   const [showComplete, setShowComplete] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [generatedOverride, setGeneratedOverride] = useState<Pick<FoundingCandidate, 'name' | 'personalityNote' | 'skills' | 'recommendation'> | null>(null)
   const { addAgent, updateAgent, updateColony } = useColonyStore()
 
-  const currentCandidate = FOUNDING_CANDIDATES[hireIndex]
+  const template = FOUNDING_CANDIDATES[hireIndex]
   const empNumber = hireIndex + 2
+
+  const currentCandidate: FoundingCandidate = generatedOverride
+    ? { ...template, ...generatedOverride }
+    : template
+
+  const generateCandidate = useCallback(async (index: number) => {
+    const t = FOUNDING_CANDIDATES[index]
+    setIsGenerating(true)
+    setGeneratedOverride(null)
+    try {
+      const result = await api.post('/api/hr/generate-candidate', {
+        role: t.role,
+        department: t.department,
+        model: t.model,
+      })
+      if (result?.name) {
+        setGeneratedOverride({
+          name: result.name,
+          personalityNote: result.personalityNote || t.personalityNote,
+          skills: result.skills?.length ? result.skills : t.skills,
+          recommendation: result.recommendation || t.recommendation,
+        })
+      }
+    } catch {
+      // Backend offline or no API key — fall back to hardcoded candidate
+    } finally {
+      setIsGenerating(false)
+    }
+  }, [])
+
+  // Generate a fresh candidate whenever the index changes
+  useEffect(() => {
+    generateCandidate(hireIndex)
+  }, [hireIndex, generateCandidate])
 
   const handleApprove = (candidate: Partial<Agent>) => {
     const agentId = hireIndex === 0 ? 'agent-0002' : `agent-${String(empNumber).padStart(4, '0')}`
@@ -181,10 +218,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   }
 
   const handleReject = () => {
-    // Just move to a shuffled version of the same candidate for now
-    // In production this would generate a new candidate via AI
-    setHireIndex((i) => i) // stay on same index, show same candidate
-    // Could add a toast here: "Requesting new candidate..."
+    generateCandidate(hireIndex)
   }
 
   return (
@@ -226,13 +260,32 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       <AnimatePresence mode="wait">
         {!showComplete ? (
           <div key={hireIndex} className="relative z-10 w-full max-w-lg px-4">
-            <HireCard
-              candidate={{ ...currentCandidate }}
-              employeeNumber={empNumber}
-              managerRecommendation={currentCandidate.recommendation}
-              onApprove={handleApprove}
-              onReject={handleReject}
-            />
+            {isGenerating ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex flex-col items-center justify-center gap-4 rounded-xl p-12"
+                style={{
+                  backgroundColor: 'hsl(215 22% 8%)',
+                  border: '1px solid hsl(215 22% 16%)',
+                  minHeight: 320,
+                }}
+              >
+                <Loader2 size={24} className="animate-spin" style={{ color: 'hsl(42 65% 52%)' }} />
+                <p className="font-mono text-xs tracking-widest uppercase"
+                  style={{ color: 'hsl(215 22% 40%)' }}>
+                  Generating candidate...
+                </p>
+              </motion.div>
+            ) : (
+              <HireCard
+                candidate={{ ...currentCandidate }}
+                employeeNumber={empNumber}
+                managerRecommendation={currentCandidate.recommendation}
+                onApprove={handleApprove}
+                onReject={handleReject}
+              />
+            )}
           </div>
         ) : (
           <motion.div
