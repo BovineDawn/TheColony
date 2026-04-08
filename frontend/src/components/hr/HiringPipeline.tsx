@@ -5,6 +5,7 @@ import { useColonyStore } from '../../stores/colonyStore'
 import { useHRStore } from '../../stores/hrStore'
 import { useActivityStore } from '../../stores/activityStore'
 import { departmentColors, departmentLabels } from '../../lib/departments'
+import { connectSocket } from '../../lib/api'
 import type { AIModel, AgentSkill, Department } from '../../types/agent'
 
 const DEPARTMENTS: Department[] = ['engineering', 'research', 'writing', 'legal', 'ld']
@@ -85,17 +86,17 @@ export function HiringPipeline() {
           .find(t => !occupied.has(`${t.x},${t.y}`)) ?? { x: 0, y: 0 }
       : { x: 0, y: 0 }
 
-    addAgent({
+    const newAgent = {
       id: crypto.randomUUID(),
       employeeId: nextId,
       name: rec.candidateName,
       role: rec.role,
-      tier: 'worker',
+      tier: 'worker' as const,
       department: rec.department as Department,
       model: rec.model as AIModel,
       personalityNote: rec.personalityNote,
       skills: parsedSkills,
-      status: 'idle',
+      status: 'idle' as const,
       hiredAt: new Date().toISOString(),
       strikes: [],
       rewards: [],
@@ -104,11 +105,18 @@ export function HiringPipeline() {
       memoryContext: '',
       isFounder: false,
       tilePosition: tilePos,
-    })
+    }
 
+    addAgent(newAgent)
     updateColony({ nextEmployeeId: nextId + 1 })
     updateHiringRec(rec.id, 'approved')
     addEvent({ type: 'agent_hired', message: `${rec.candidateName} joined as ${rec.role}`, agentName: rec.candidateName })
+
+    // Trigger L&D onboarding training for the new hire
+    try {
+      const socket = connectSocket()
+      socket.emit('new_hire_onboarding', { agent: newAgent })
+    } catch { /* backend offline — onboarding will run on next L&D cycle */ }
   }
 
   const rejectHire = (id: string) => updateHiringRec(id, 'rejected')

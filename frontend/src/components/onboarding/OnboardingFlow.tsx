@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useColonyStore } from '../../stores/colonyStore'
 import { HireCard } from './HireCard'
+import { connectSocket } from '../../lib/api'
 import type { Agent, Department, AIModel, AgentSkill } from '../../types/agent'
 
 interface FoundingCandidate {
@@ -161,6 +162,12 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     })
 
     updateColony({ nextEmployeeId: empNumber + 1 })
+
+    // Trigger L&D onboarding — fire and forget, safe if backend is offline
+    try {
+      const socket = connectSocket()
+      socket.emit('new_hire_onboarding', { agent: newAgent })
+    } catch { /* backend offline — skills will be reviewed on first L&D cycle */ }
 
     if (hireIndex < FOUNDING_CANDIDATES.length - 1) {
       setHireIndex((i) => i + 1)

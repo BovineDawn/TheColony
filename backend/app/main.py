@@ -9,11 +9,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import agents, missions, hr, ld
-from app.services.ld_service import run_ld_cycle, get_ld_status
 from app.db.database import create_tables, SessionLocal
 from app.models.agent import AgentModel
 from app.models.mission import MissionModel, MessageModel
 from app.services.orchestrator import run_mission
+from app.services.ld_service import run_ld_cycle, get_ld_status, run_onboarding_training
 
 # --- Socket.IO setup ---
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
@@ -201,6 +201,70 @@ async def run_ld(sid, data):
         'text': 'L&D cycle queued',
         'timestamp': datetime.utcnow().isoformat(),
     }, to=sid)
+
+@sio.event
+async def new_hire_onboarding(sid, data):
+    """
+    Triggered when a new hire is approved in the frontend.
+    Upserts the agent to the DB, then runs L&D onboarding training.
+    data: { agent: { id, employeeId, name, role, tier, department, model,
+                     personalityNote, skills, tilePosition, managerId, ... } }
+    """
+    agent_data = data.get('agent')
+    if not agent_data:
+        return
+
+    # Normalise frontend camelCase → snake_case for DB
+    db = SessionLocal()
+    try:
+        existing = db.query(AgentModel).filter(AgentModel.id == agent_data.get('id', '')).first()
+        if not existing:
+            tile = agent_data.get('tilePosition') or {}
+            new_a = AgentModel(
+                id              = agent_data['id'],
+                employee_id     = agent_data.get('employeeId', 0),
+                name            = agent_data['name'],
+                role            = agent_data['role'],
+                tier            = agent_data.get('tier', 'worker'),
+                department      = agent_data['department'],
+                model           = agent_data.get('model', 'claude-3-5-sonnet'),
+                personality_note= agent_data.get('personalityNote', ''),
+                skills          = agent_data.get('skills', []),
+                manager_id      = agent_data.get('managerId'),
+                tile_x          = tile.get('x', 0),
+                tile_y          = tile.get('y', 0),
+                is_founder      = agent_data.get('isFounder', False),
+            )
+            db.add(new_a)
+            db.commit()
+    except Exception:
+        pass
+    finally:
+        db.close()
+
+    # Build the dict that run_onboarding_training expects
+    agent_dict = {
+        'id':              agent_data.get('id', ''),
+        'employee_id':     agent_data.get('employeeId', 0),
+        'name':            agent_data['name'],
+        'role':            agent_data['role'],
+        'tier':            agent_data.get('tier', 'worker'),
+        'department':      agent_data['department'],
+        'model':           agent_data.get('model', 'claude-3-5-sonnet'),
+        'personality_note':agent_data.get('personalityNote', ''),
+        'skills':          agent_data.get('skills', []),
+        'is_founder':      agent_data.get('isFounder', False),
+        'manager_id':      agent_data.get('managerId'),
+        'strikes':         [],
+        'quality_score':   100.0,
+        'memory_context':  '',
+    }
+
+    async def broadcast(event: dict):
+        await sio.emit('colony_event', event)  # broadcast to all clients
+
+    asyncio.create_task(run_onboarding_training(agent_dict, broadcast))
+
 
 # Wrap in ASGI
 socket_app = socketio.ASGIApp(sio, app)

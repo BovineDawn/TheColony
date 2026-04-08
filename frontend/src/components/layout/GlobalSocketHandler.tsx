@@ -93,6 +93,38 @@ export function GlobalSocketHandler() {
           }
           break
 
+        // ── New-hire onboarding events ─────────────────────────────────────
+        case 'ld_onboarding_start':
+          ldStore.addLog({
+            type: 'reviewing',
+            message: event.text || `Onboarding ${event.agent_name}`,
+            agentName: event.agent_name,
+            timestamp: event.timestamp || now,
+          })
+          // Set L&D head to working
+          if (event.agent_id) {
+            // The ld_status_update event follows immediately from the service
+          }
+          break
+
+        case 'ld_onboarding_complete':
+          ldStore.addLog({
+            type: 'complete',
+            message: event.text || `${event.agent_name} onboarding complete`,
+            agentName: event.agent_name,
+            timestamp: event.timestamp || now,
+          })
+          // Apply the upgraded skill set to Zustand
+          if (event.agent_id && event.new_skills) {
+            updateAgent(event.agent_id, { skills: event.new_skills })
+          }
+          addEvent({
+            type: 'training_start',
+            message: `${event.agent_name} completed onboarding training`,
+            agentName: event.agent_name,
+          })
+          break
+
         default:
           break
       }
