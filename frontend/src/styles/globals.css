@@ -1,0 +1,105 @@
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  /* ── Base surfaces ── grittier, slightly warmer than generic navy */
+  --color-background:    hsl(215 22% 6%);
+  --color-surface:       hsl(215 18% 10%);
+  --color-surface-raised: hsl(215 14% 14%);
+  --color-border:        hsl(215 14% 19%);
+
+  /* ── Warm amber — the ID card accent ── */
+  --color-amber:         hsl(42 65% 52%);
+  --color-amber-dim:     hsl(42 35% 30%);
+  --color-amber-glow:    hsl(42 65% 52% / 0.2);
+
+  /* ── Cyan — tech / primary ── */
+  --color-primary:       hsl(189 100% 50%);
+  --color-primary-dim:   hsl(189 100% 50% / 0.10);
+
+  --color-secondary:     hsl(262 75% 62%);
+  --color-success:       hsl(155 58% 40%);
+  --color-warning:       hsl(38 90% 52%);
+  --color-danger:        hsl(0 70% 52%);
+
+  /* ── Text — slightly warm white ── */
+  --color-text-primary:  hsl(42 12% 92%);
+  --color-text-muted:    hsl(215 12% 52%);
+  --color-text-dim:      hsl(215 10% 36%);
+
+  /* ── Typography ── */
+  --font-display:  'Rajdhani', sans-serif;    /* colony title, ID card headers */
+  --font-heading:  'Space Grotesk', sans-serif;
+  --font-body:     'Inter', sans-serif;
+  --font-mono:     'JetBrains Mono', monospace;
+
+  /* ── Shadows ── */
+  --shadow-glow-primary: 0 0 20px hsl(189 100% 50% / 0.35);
+  --shadow-glow-amber:   0 0 16px hsl(42 65% 52% / 0.30);
+  --shadow-glow-danger:  0 0 20px hsl(0 70% 52% / 0.40);
+  --shadow-card:         0 4px 32px rgba(0,0,0,0.55), 0 1px 0 hsl(215 14% 22%);
+}
+
+/* ── Reset ── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  overflow: hidden;
+}
+
+/* ── Grain texture overlay — physical/printed feel ── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.025;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--color-surface); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(215 14% 28%); }
+
+/* ── Animations ── */
+@keyframes breathe {
+  0%, 100% { opacity: 0.65; }
+  50%       { opacity: 1.0;  }
+}
+
+@keyframes pulse-work {
+  0%, 100% { box-shadow: 0 0 8px  hsl(189 100% 50% / 0.25); }
+  50%       { box-shadow: 0 0 22px hsl(189 100% 50% / 0.75); }
+}
+
+@keyframes pulse-amber {
+  0%, 100% { box-shadow: 0 0 8px  hsl(42 65% 52% / 0.25); }
+  50%       { box-shadow: 0 0 20px hsl(42 65% 52% / 0.65); }
+}
+
+@keyframes grid-pulse {
+  0%, 100% { opacity: 0.04; }
+  50%       { opacity: 0.09; }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(8px); opacity: 0; }
+  to   { transform: translateX(0);   opacity: 1; }
+}
+
+.agent-idle   { animation: breathe    3s ease-in-out infinite; }
+.agent-active { animation: pulse-work 1.2s ease-in-out infinite; }
+.agent-amber  { animation: pulse-amber 1.5s ease-in-out infinite; }
+.grid-bg      { animation: grid-pulse 8s ease-in-out infinite; }

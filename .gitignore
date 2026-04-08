@@ -1,0 +1,28 @@
+### Node / Frontend
+node_modules/
+dist/
+.vite/
+*.local
+
+### Python / Backend
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/*.db
+backend/*.sqlite
+backend/.env
+*.egg-info/
+
+### OS
+.DS_Store
+Thumbs.db
+
+### IDEs
+.vscode/
+.idea/
+*.swp
+
+### Logs
+*.log
+/tmp/
