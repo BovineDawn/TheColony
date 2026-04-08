@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Send, Loader2, Radio, FileText, ChevronDown,
@@ -7,7 +7,7 @@ import {
 import { useColonyStore } from '../../stores/colonyStore'
 import { useMissionHistoryStore } from '../../stores/missionHistoryStore'
 import { useActivityStore } from '../../stores/activityStore'
-import { connectSocket } from '../../lib/api'
+import { connectSocket, api } from '../../lib/api'
 import type { Socket } from 'socket.io-client'
 
 type Mode = 'chat' | 'formal'
@@ -34,6 +34,7 @@ interface DisplayMessage {
   timestamp: string
   isFormal?: boolean
   missionTitle?: string
+  streaming?: boolean
 }
 
 const MODEL_LABELS: Record<string, string> = {
@@ -75,7 +76,7 @@ export function MissionControl() {
   const founder   = agents.find(a => a.isFounder)
 
   useEffect(() => {
-    fetch('http://localhost:8000/health')
+    api.get('/health')
       .then(() => setBackendOnline(true))
       .catch(() => setBackendOnline(false))
   }, [])
@@ -88,6 +89,36 @@ export function MissionControl() {
 
     socket.on('colony_event', (event: ColonyEvent) => {
       setAuditEvents(prev => [...prev, event])
+
+      // ── Streaming: exec types token-by-token ──────────────────────────────
+      if (event.type === 'agent_stream_start') {
+        setMessages(prev => [...prev, {
+          id: event.stream_id,
+          role: 'executive',
+          content: '',
+          name: event.from_name,
+          msgType: event.msg_type,
+          timestamp: event.timestamp,
+          isFormal: event.msg_type === 'formal_report',
+          streaming: true,
+        }])
+      }
+
+      if (event.type === 'agent_stream_chunk') {
+        setMessages(prev => prev.map(m =>
+          m.id === event.stream_id
+            ? { ...m, content: m.content + event.chunk }
+            : m
+        ))
+      }
+
+      if (event.type === 'agent_stream_end') {
+        setMessages(prev => prev.map(m =>
+          m.id === event.stream_id
+            ? { ...m, content: event.content, streaming: false, missionTitle: event.mission_title }
+            : m
+        ))
+      }
 
       if (event.type === 'agent_message' && event.msg_type !== 'internal') {
         setMessages(prev => [...prev, {
@@ -446,8 +477,8 @@ export function MissionControl() {
           ))}
         </AnimatePresence>
 
-        {/* Typing indicator */}
-        {isRunning && (
+        {/* Typing indicator — only shown while waiting for the stream to start */}
+        {isRunning && !messages.some(m => m.streaming) && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -650,6 +681,10 @@ function ChatBubble({ msg }: { msg: DisplayMessage }) {
           fontFamily: 'var(--font-body)',
         }}>
         {msg.content}
+        {msg.streaming && (
+          <span className="inline-block w-0.5 h-4 ml-0.5 align-text-bottom animate-pulse"
+            style={{ backgroundColor: 'var(--color-primary)' }} />
+        )}
       </div>
     </div>
   )
@@ -704,6 +739,10 @@ function FormalReportBubble({ msg }: { msg: DisplayMessage }) {
               maxHeight: '420px',
             }}>
             {msg.content}
+            {msg.streaming && (
+              <span className="inline-block w-0.5 h-4 ml-0.5 align-text-bottom animate-pulse"
+                style={{ backgroundColor: 'var(--color-primary)' }} />
+            )}
           </div>
         )}
       </div>

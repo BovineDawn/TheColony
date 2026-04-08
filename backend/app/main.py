@@ -158,6 +158,25 @@ async def send_mission(sid, data):
             """Relay every event to the frontend via Socket.IO, then write to DB."""
             await sio.emit("colony_event", event, to=sid)
 
+            # Persist completed streamed messages (agent_stream_end carries the full content)
+            if event.get("type") == "agent_stream_end" and event.get("msg_type") != "internal":
+                _db = SessionLocal()
+                try:
+                    _db.add(MessageModel(
+                        id=str(uuid.uuid4()),
+                        mission_id=mission_id,
+                        from_agent_id=event.get("from_id", ""),
+                        to_agent_id=event.get("to_id", ""),
+                        content=event.get("content", ""),
+                        msg_type=event.get("msg_type", "chat"),
+                        is_internal=False,
+                    ))
+                    _db.commit()
+                except Exception:
+                    _db.rollback()
+                finally:
+                    _db.close()
+
             if event.get("type") == "agent_message" and event.get("msg_type") != "internal":
                 _db = SessionLocal()
                 try:

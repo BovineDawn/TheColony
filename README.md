@@ -8,21 +8,32 @@
 
 Build a company of autonomous AI agents organized in a military-style hierarchy. Assign missions, monitor performance, issue strikes, run training cycles, and watch your agents work — in real time, on a Rimworld-inspired canvas.
 
-[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react)](https://react.dev)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://react.dev)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![Pixi.js](https://img.shields.io/badge/Pixi.js-v8-E72264?style=flat-square)](https://pixijs.com)
 [![LiteLLM](https://img.shields.io/badge/LiteLLM-Multi--Model-blueviolet?style=flat-square)](https://litellm.ai)
 [![Claude](https://img.shields.io/badge/Claude-3.5%20Sonnet-orange?style=flat-square&logo=anthropic)](https://anthropic.com)
 [![GPT-4o](https://img.shields.io/badge/GPT--4o-Supported-74AA9C?style=flat-square&logo=openai)](https://openai.com)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)](https://typescriptlang.org)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python)](https://python.org)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker)](https://docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
-[**Live Demo**](#quick-start) · [**Features**](#features) · [**Architecture**](#architecture) · [**Setup**](#quick-start) · [**Roadmap**](#roadmap)
+[**Quick Start**](#quick-start) · [**Features**](#features) · [**Architecture**](#architecture) · [**Roadmap**](#roadmap)
 
 </div>
 
 ---
+
+<!-- 
+  📹 DEMO GIF — record a ~30s capture and drop it here.
+  Suggested flow: colony map with breathing tiles → dispatch a mission →
+  watch the executive stream a response token-by-token → audit drawer filling →
+  final formal report lands → L&D overlay runs.
+  Tools: Kap (mac), ScreenToGif (win), or `ffmpeg` to compress.
+  Replace this comment block with:
+  <img src="docs/screenshots/demo.gif" alt="The Colony Demo" width="100%"/>
+-->
 
 ## What Is This?
 
@@ -80,6 +91,7 @@ Think: **Rimworld meets a real AI agent framework**.
 ### 🎯 Mission Control
 - **Chat mode**: conversational dispatch straight to your Sr. Executive
 - **Formal Brief mode**: structured mission with title, priority, and deadline
+- **Live streaming** — executive responses appear token-by-token with a blinking cursor
 - Live audit drawer showing every internal agent-to-agent message
 - Full mission history — every transcript is persisted and browsable
 
@@ -164,19 +176,55 @@ the-colony/
 
 ## Quick Start
 
-### Prerequisites
-- Node.js 18+
+### Option A — Docker (recommended)
+
+> Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/). No Node or Python needed.
+
+```bash
+git clone https://github.com/BovineDawn/TheColony.git
+cd TheColony
+
+# Add your API keys
+cp backend/.env.example backend/.env
+# Edit backend/.env and add at least one key
+
+docker compose up --build
+```
+
+Open **http://localhost:5173** → click **Begin** → found your colony.
+
+---
+
+### Option B — Manual Setup
+
+#### Prerequisites
+- Node.js 20+
 - Python 3.12+
 - At least one API key: Anthropic, OpenAI, or Google Gemini
 
-### 1. Clone
+#### 1. Clone
 
 ```bash
 git clone https://github.com/BovineDawn/TheColony.git
 cd TheColony
 ```
 
-### 2. Frontend
+#### 2. Backend
+
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+cp .env.example .env
+# Edit .env — add at least one key
+
+uvicorn app.main:socket_app --reload --port 8000
+# → http://localhost:8000
+```
+
+#### 3. Frontend
 
 ```bash
 cd frontend
@@ -185,30 +233,11 @@ npm run dev
 # → http://localhost:5173
 ```
 
-### 3. Backend
+#### 4. Found Your Colony
 
-```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+Open **http://localhost:5173** → click **Begin** → name your colony → name yourself → approve your 6 founding department heads → the colony map loads.
 
-# Add your API keys
-cp .env.example .env
-# Edit .env and add at least one key:
-# ANTHROPIC_API_KEY=sk-ant-...
-# OPENAI_API_KEY=sk-...
-# GEMINI_API_KEY=...
-
-uvicorn app.main:socket_app --reload --port 8000
-# → http://localhost:8000
-```
-
-### 4. Found Your Colony
-
-Open http://localhost:5173 → click **Begin** → name your colony → name yourself → approve your 6 founding department heads → the colony map loads.
-
-> **Note:** The app works frontend-only with no API keys — agents won't respond to missions, but the whole UI (map, dossiers, hiring, org chart, etc.) is fully functional.
+> **No API keys?** The whole UI works — map, dossiers, hiring, org chart, L&D reports. Agents just won't generate text responses until you add a key.
 
 ---
 

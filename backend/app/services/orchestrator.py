@@ -16,7 +16,7 @@ import re
 from datetime import datetime
 from typing import Callable, Awaitable
 
-from app.services.llm import call_agent
+from app.services.llm import call_agent, stream_agent
 from app.services.memory import compress_memory
 from app.services.quality import score_response, should_flag_for_strike, update_rolling_score
 from app.db.database import SessionLocal
@@ -50,6 +50,64 @@ def _manager_is_involved(manager: dict, involved: set[str]) -> bool:
     dept = manager.get('department', '').lower()
     role = manager.get('role', '').lower()
     return any(dept in token or token in dept or token in role for token in involved)
+
+
+async def _stream_exec_message(
+    agent: dict,
+    messages: list[dict],
+    on_message: OnMessage,
+    to_id: str | None,
+    msg_type: str,
+    mission_title: str | None = None,
+) -> str:
+    """
+    Stream an executive response to the Founder token-by-token.
+    Emits agent_stream_start → agent_stream_chunk* → agent_stream_end.
+    Returns the full assembled text.
+    """
+    import uuid as _uuid
+    stream_id = _uuid.uuid4().hex[:12]
+    ts = datetime.utcnow().isoformat()
+
+    await on_message({
+        "type": "agent_stream_start",
+        "stream_id": stream_id,
+        "from_id": agent["id"],
+        "from_name": agent["name"],
+        "from_role": agent["role"],
+        "to_id": to_id,
+        "msg_type": msg_type,
+        "timestamp": ts,
+    })
+
+    full_text = ""
+    try:
+        async for chunk in stream_agent(agent, messages):
+            full_text += chunk
+            await on_message({
+                "type": "agent_stream_chunk",
+                "stream_id": stream_id,
+                "chunk": chunk,
+            })
+    except Exception as e:
+        # Fall back to non-streaming on error
+        resp = await call_agent(agent, messages)
+        full_text = resp.choices[0].message.content or ""
+
+    await on_message({
+        "type": "agent_stream_end",
+        "stream_id": stream_id,
+        "from_id": agent["id"],
+        "from_name": agent["name"],
+        "from_role": agent["role"],
+        "to_id": to_id,
+        "content": full_text,
+        "msg_type": msg_type,
+        "mission_title": mission_title,
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+
+    return full_text
 
 
 async def _update_agent_memory(agent_id: str, new_memory: str) -> None:
@@ -171,19 +229,13 @@ ACTION PLAN:
 - ...
 TIMELINE: [estimated completion]"""
 
-    exec_response = await call_agent(executive, [{"role": "user", "content": exec_prompt}])
-    exec_text = exec_response.choices[0].message.content or ""
-
-    await on_message({
-        "type": "agent_message",
-        "from_id": executive["id"],
-        "from_name": executive["name"],
-        "from_role": executive["role"],
-        "to_id": founder_id,
-        "content": exec_text,
-        "msg_type": "update",
-        "timestamp": datetime.utcnow().isoformat(),
-    })
+    exec_text = await _stream_exec_message(
+        agent=executive,
+        messages=[{"role": "user", "content": exec_prompt}],
+        on_message=on_message,
+        to_id=founder_id,
+        msg_type="update",
+    )
 
     # Step 2 — Parse which departments are involved and dispatch only those managers
     managers = [a for a in agents if a.get("tier") == "manager"]
@@ -321,20 +373,14 @@ Now compile a comprehensive final report for the Founder. Include:
 
 Format it professionally as a formal report."""
 
-    final_response = await call_agent(executive, [{"role": "user", "content": compile_prompt}])
-    final_text = final_response.choices[0].message.content or ""
-
-    await on_message({
-        "type": "agent_message",
-        "from_id": executive["id"],
-        "from_name": executive["name"],
-        "from_role": executive["role"],
-        "to_id": founder_id,
-        "content": final_text,
-        "msg_type": "formal_report",
-        "timestamp": datetime.utcnow().isoformat(),
-        "mission_title": mission["title"],
-    })
+    final_text = await _stream_exec_message(
+        agent=executive,
+        messages=[{"role": "user", "content": compile_prompt}],
+        on_message=on_message,
+        to_id=founder_id,
+        msg_type="formal_report",
+        mission_title=mission["title"],
+    )
 
     await on_message({
         "type": "mission_complete",
