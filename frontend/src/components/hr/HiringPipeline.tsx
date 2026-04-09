@@ -21,6 +21,8 @@ export function HiringPipeline() {
   const { hiringRecs, addHiringRec, updateHiringRec } = useHRStore()
   const { addEvent } = useActivityStore()
   const [showForm, setShowForm] = useState(false)
+  // Per-card manager overrides: rec.id → manager agent id
+  const [managerOverrides, setManagerOverrides] = useState<Record<string, string>>({})
 
   // Form state
   const [dept, setDept] = useState<Department>('engineering')
@@ -80,7 +82,10 @@ export function HiringPipeline() {
 
   const approveHire = (rec: typeof pendingRecs[0]) => {
     const nextId = colony?.nextEmployeeId ?? agents.length + 1
-    const mgr = agents.find(a => a.department === rec.department && a.tier === 'manager')
+    const overrideId = managerOverrides[rec.id]
+    const mgr = overrideId
+      ? agents.find(a => a.id === overrideId)
+      : agents.find(a => a.department === rec.department && a.tier === 'manager')
     const parsedSkills = rec.skills as AgentSkill[]
 
     // Assign a tile position — generate all zone tiles dynamically
@@ -367,6 +372,42 @@ export function HiringPipeline() {
                         {MODEL_LABELS[rec.model as AIModel] || rec.model}
                       </span>
                     </div>
+
+                    {/* Manager reassignment */}
+                    {(() => {
+                      const allManagers = agents.filter(a => a.tier === 'manager')
+                      const defaultMgr = agents.find(a => a.department === rec.department && a.tier === 'manager')
+                      const selectedId = managerOverrides[rec.id] ?? defaultMgr?.id ?? ''
+                      const selectedMgr = agents.find(a => a.id === selectedId)
+                      return allManagers.length > 0 ? (
+                        <div className="flex flex-col gap-1.5">
+                          <label className="font-mono text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                            Reports to
+                          </label>
+                          <select
+                            value={selectedId}
+                            onChange={e => setManagerOverrides(prev => ({ ...prev, [rec.id]: e.target.value }))}
+                            className="px-3 py-2 text-sm outline-none rounded-lg cursor-pointer"
+                            style={{
+                              backgroundColor: 'var(--color-surface-raised)',
+                              border: `1px solid ${selectedMgr ? departmentColors[selectedMgr.department as Department] + '60' : 'var(--color-border)'}`,
+                              color: selectedMgr ? departmentColors[selectedMgr.department as Department] : 'var(--color-text-primary)',
+                            }}
+                          >
+                            {allManagers.map(m => (
+                              <option key={m.id} value={m.id}>
+                                {m.name} — {m.role}
+                              </option>
+                            ))}
+                          </select>
+                          {selectedMgr && selectedMgr.department !== rec.department && (
+                            <p className="text-xs font-mono" style={{ color: 'var(--color-warning)' }}>
+                              Cross-department assignment — {selectedMgr.name} is in {selectedMgr.department}
+                            </p>
+                          )}
+                        </div>
+                      ) : null
+                    })()}
 
                     <div className="flex gap-2">
                       <button onClick={() => approveHire(rec)}
