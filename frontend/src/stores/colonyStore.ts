@@ -15,6 +15,7 @@ interface ColonyStore {
   removeAgent: (id: string) => void
   addMission: (mission: Mission) => void
   updateMission: (id: string, updates: Partial<Mission>) => void
+  resetAgentStatuses: () => void
   reset: () => void
 }
 
@@ -47,6 +48,11 @@ export const useColonyStore = create<ColonyStore>()(
       updateMission: (id, updates) =>
         set((s) => ({
           missions: s.missions.map((m) => (m.id === id ? { ...m, ...updates } : m)),
+        })),
+
+      resetAgentStatuses: () =>
+        set((s) => ({
+          agents: s.agents.map((a) => ({ ...a, status: 'idle' as Agent['status'] })),
         })),
 
       reset: () => set({ colony: null, agents: [], missions: [] }),

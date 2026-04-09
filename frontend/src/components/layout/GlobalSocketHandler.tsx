@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { connectSocket } from '../../lib/api'
 import { useColonyStore } from '../../stores/colonyStore'
 import { useLDStore } from '../../stores/ldStore'
@@ -8,6 +8,8 @@ export function GlobalSocketHandler() {
   const updateAgent = useColonyStore((s) => s.updateAgent)
   const ldStore = useLDStore()
   const addEvent = useActivityStore((s) => s.addEvent)
+  // Guard: suppress 'working' status updates for a few seconds after cancellation
+  const cancelledAt = useRef<number>(0)
 
   useEffect(() => {
     const socket = connectSocket()
@@ -16,6 +18,11 @@ export function GlobalSocketHandler() {
       const now = new Date().toISOString()
 
       switch (event.type) {
+        case 'status':
+          // A new mission routing message means a mission is starting — clear cancel guard
+          cancelledAt.current = 0
+          break
+
         case 'ld_cycle_start':
           ldStore.setRunning(true)
           ldStore.resetStats()
@@ -87,11 +94,16 @@ export function GlobalSocketHandler() {
           }
           break
 
-        case 'status_update':
+        case 'status_update': {
           if (event.agent_id) {
-            updateAgent(event.agent_id, { status: event.status })
+            // Suppress 'working' events that arrive after a cancellation (stale network buffer)
+            const isStaleWorking = event.status === 'working' && (Date.now() - cancelledAt.current < 5000)
+            if (!isStaleWorking) {
+              updateAgent(event.agent_id, { status: event.status })
+            }
           }
           break
+        }
 
         // ── New-hire onboarding events ─────────────────────────────────────
         case 'ld_onboarding_start':
@@ -124,6 +136,15 @@ export function GlobalSocketHandler() {
             agentName: event.agent_name,
           })
           break
+
+        case 'mission_cancelled': {
+          cancelledAt.current = Date.now()
+          const liveAgents = useColonyStore.getState().agents
+          liveAgents
+            .filter(a => ['working', 'thinking', 'chatting'].includes(a.status))
+            .forEach(a => updateAgent(a.id, { status: 'idle' }))
+          break
+        }
 
         default:
           break

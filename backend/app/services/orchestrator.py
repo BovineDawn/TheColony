@@ -3,13 +3,6 @@ Mission orchestrator — routes founder instructions through the hierarchy.
 
 Flow:
   Founder → Sr. Executive → Department Manager(s) → Worker(s)
-
-The orchestrator:
-1. Takes a mission from the founder
-2. Sends it to the Sr. Executive with context
-3. Sr. Executive decides which department(s) handle it and what each should do
-4. Each manager gets their sub-task and delegates to workers (Phase 3)
-5. Results bubble back up as updates
 """
 import asyncio
 import re
@@ -24,12 +17,23 @@ from app.models.agent import AgentModel
 
 OnMessage = Callable[[dict], Awaitable[None]]
 
+# ── Cancellation registry ────────────────────────────────────────────────────
+_cancel_flags: dict[str, asyncio.Event] = {}
+
+
+def cancel_all_missions() -> int:
+    """Signal all running missions to stop. Returns number cancelled."""
+    count = len(_cancel_flags)
+    for ev in _cancel_flags.values():
+        ev.set()
+    return count
+
+
+def _ts() -> str:
+    return datetime.utcnow().isoformat()
+
 
 def _parse_involved_departments(exec_text: str) -> set[str]:
-    """
-    Extract department names from the executive's ACTION PLAN section.
-    Returns a set of lowercase tokens; empty set means dispatch all managers.
-    """
     plan_match = re.search(r'ACTION PLAN:(.*?)(?:TIMELINE:|$)', exec_text, re.DOTALL | re.IGNORECASE)
     if not plan_match:
         return set()
@@ -44,12 +48,22 @@ def _parse_involved_departments(exec_text: str) -> set[str]:
 
 
 def _manager_is_involved(manager: dict, involved: set[str]) -> bool:
-    """Return True if this manager's department appears in the involved set."""
     if not involved:
-        return True  # no departments parsed — dispatch all
+        return True
     dept = manager.get('department', '').lower()
     role = manager.get('role', '').lower()
     return any(dept in token or token in dept or token in role for token in involved)
+
+
+def _extract_dept_task(exec_text: str, dept: str) -> str:
+    """Pull the relevant ACTION PLAN line for a department from the exec response."""
+    for line in exec_text.split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('-') and ':' in stripped:
+            label = stripped[1:].split(':', 1)[0].strip().lower()
+            if dept.lower() in label or label in dept.lower():
+                return stripped[1:].split(':', 1)[1].strip()
+    return ''
 
 
 async def _stream_exec_message(
@@ -60,14 +74,8 @@ async def _stream_exec_message(
     msg_type: str,
     mission_title: str | None = None,
 ) -> str:
-    """
-    Stream an executive response to the Founder token-by-token.
-    Emits agent_stream_start → agent_stream_chunk* → agent_stream_end.
-    Returns the full assembled text.
-    """
     import uuid as _uuid
     stream_id = _uuid.uuid4().hex[:12]
-    ts = datetime.utcnow().isoformat()
 
     await on_message({
         "type": "agent_stream_start",
@@ -77,20 +85,15 @@ async def _stream_exec_message(
         "from_role": agent["role"],
         "to_id": to_id,
         "msg_type": msg_type,
-        "timestamp": ts,
+        "timestamp": _ts(),
     })
 
     full_text = ""
     try:
         async for chunk in stream_agent(agent, messages):
             full_text += chunk
-            await on_message({
-                "type": "agent_stream_chunk",
-                "stream_id": stream_id,
-                "chunk": chunk,
-            })
-    except Exception as e:
-        # Fall back to non-streaming on error
+            await on_message({"type": "agent_stream_chunk", "stream_id": stream_id, "chunk": chunk})
+    except Exception:
         resp = await call_agent(agent, messages)
         full_text = resp.choices[0].message.content or ""
 
@@ -104,14 +107,13 @@ async def _stream_exec_message(
         "content": full_text,
         "msg_type": msg_type,
         "mission_title": mission_title,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": _ts(),
     })
 
     return full_text
 
 
 async def _update_agent_memory(agent_id: str, new_memory: str) -> None:
-    """Persist updated memory_context to DB."""
     db = SessionLocal()
     try:
         agent_row = db.query(AgentModel).filter(AgentModel.id == agent_id).first()
@@ -125,7 +127,6 @@ async def _update_agent_memory(agent_id: str, new_memory: str) -> None:
 
 
 async def _update_agent_quality(agent_id: str, new_score: float) -> None:
-    """Persist updated quality_score to DB."""
     db = SessionLocal()
     try:
         agent_row = db.query(AgentModel).filter(AgentModel.id == agent_id).first()
@@ -144,8 +145,11 @@ async def _run_worker(
     mission: dict,
     mgr_text: str,
     on_message: OnMessage,
+    cancel: asyncio.Event,
 ) -> str:
-    """Run a single worker agent on a sub-task derived from the manager's plan."""
+    if cancel.is_set():
+        return f"[{worker['name']}] Cancelled"
+
     worker_prompt = f"""Your manager {manager['name']} has delegated a sub-task to you from the mission:
 
 MISSION: {mission['title']}
@@ -155,36 +159,136 @@ YOUR ROLE: {worker.get('role', '')}
 
 Complete the specific portion of this work that falls within your expertise. Be thorough and specific."""
 
-    await on_message({
-        "type": "status_update",
-        "agent_id": worker["id"],
-        "agent_name": worker["name"],
-        "status": "working",
-        "timestamp": datetime.utcnow().isoformat(),
-    })
+    await on_message({"type": "status_update", "agent_id": worker["id"], "agent_name": worker["name"], "status": "working", "timestamp": _ts()})
 
     try:
         resp = await call_agent(worker, [{"role": "user", "content": worker_prompt}])
         worker_text = resp.choices[0].message.content or ""
-
-        await on_message({
-            "type": "status_update",
-            "agent_id": worker["id"],
-            "agent_name": worker["name"],
-            "status": "idle",
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-
+        await on_message({"type": "status_update", "agent_id": worker["id"], "agent_name": worker["name"], "status": "idle", "timestamp": _ts()})
         return f"[{worker['name']} — {worker.get('role', 'Worker')}]\n{worker_text}"
     except Exception as e:
-        await on_message({
-            "type": "status_update",
-            "agent_id": worker["id"],
-            "agent_name": worker["name"],
-            "status": "idle",
-            "timestamp": datetime.utcnow().isoformat(),
-        })
+        await on_message({"type": "status_update", "agent_id": worker["id"], "agent_name": worker["name"], "status": "idle", "timestamp": _ts()})
         return f"[{worker['name']}] Error: {str(e)}"
+
+
+async def _run_manager(
+    manager: dict,
+    executive: dict,
+    mission: dict,
+    exec_text: str,
+    agents: list[dict],
+    on_message: OnMessage,
+    cancel: asyncio.Event,
+) -> tuple[str, dict]:
+    """Run one manager and their workers. Returns (result_text, conversation_data)."""
+    if cancel.is_set():
+        return f"[{manager['name']}] Cancelled", {}
+
+    dept_task_prompt = f"""You have been assigned a sub-task from the Sr. Executive for the following mission:
+
+MISSION: {mission['title']}
+EXECUTIVE PLAN:
+{exec_text}
+
+Your department: {manager['department']}
+Your role: {manager['role']}
+
+Execute the relevant portion of this mission for your department.
+Be specific, thorough, and professional. Return your findings/work product."""
+
+    # Emit a rich delegation message so the frontend can show what each manager is assigned
+    task_summary = _extract_dept_task(exec_text, manager.get('department', ''))
+    await on_message({
+        "type": "agent_message",
+        "from_id": executive["id"], "from_name": executive["name"], "from_role": executive["role"],
+        "to_id": manager["id"], "to_name": manager["name"],
+        "content": task_summary or f"Execute all {manager.get('department', '').title()} department tasks for this mission.",
+        "msg_type": "internal",
+        "timestamp": _ts(),
+    })
+
+    await on_message({"type": "status_update", "agent_id": manager["id"], "agent_name": manager["name"], "status": "working", "timestamp": _ts()})
+
+    mgr_text = ""
+    try:
+        if cancel.is_set():
+            return f"[{manager['name']}] Cancelled", {}
+
+        # Stream the manager's response so the founder can see their thinking in real-time
+        mgr_text = await _stream_exec_message(
+            agent=manager,
+            messages=[{"role": "user", "content": dept_task_prompt}],
+            on_message=on_message,
+            to_id=executive["id"],
+            msg_type="update",
+        )
+
+        if cancel.is_set():
+            await on_message({"type": "status_update", "agent_id": manager["id"], "agent_name": manager["name"], "status": "idle", "timestamp": _ts()})
+            return f"[{manager['name']}] Cancelled after response", {}
+
+        # Worker delegation
+        manager_id = manager["id"]
+        workers = [
+            a for a in agents
+            if a.get("tier") == "worker"
+            and (a.get("manager_id") == manager_id or a.get("managerId") == manager_id)
+        ]
+
+        if workers and not cancel.is_set():
+            # Notify frontend about each worker assignment
+            for w in workers:
+                await on_message({
+                    "type": "agent_message",
+                    "from_id": manager["id"], "from_name": manager["name"], "from_role": manager["role"],
+                    "to_id": w["id"], "to_name": w["name"],
+                    "content": f"Sub-task assigned: {w['role']} — contributing to {manager.get('department', '').title()} dept work.",
+                    "msg_type": "internal",
+                    "timestamp": _ts(),
+                })
+
+            worker_tasks = [_run_worker(w, manager, mission, mgr_text, on_message, cancel) for w in workers]
+            worker_results = await asyncio.gather(*worker_tasks)
+            if not cancel.is_set():
+                worker_summary = "\n\n".join(worker_results)
+                synthesis_prompt = f"""You delegated sub-tasks to your team. Here are their results:
+
+{worker_summary}
+
+Now provide a final synthesis of all work completed, integrating the team's contributions into a cohesive department report."""
+                synthesis_response = await call_agent(manager, [{"role": "user", "content": synthesis_prompt}])
+                mgr_text = synthesis_response.choices[0].message.content or mgr_text
+                # Notify that synthesis is done
+                await on_message({
+                    "type": "agent_message",
+                    "from_id": manager["id"], "from_name": manager["name"], "from_role": manager["role"],
+                    "to_id": executive["id"], "to_name": executive["name"],
+                    "content": f"Synthesis complete — integrated {len(workers)} worker contribution{'s' if len(workers) != 1 else ''} into department report.",
+                    "msg_type": "internal",
+                    "timestamp": _ts(),
+                })
+
+        result = f"[{manager['name']} — {manager['role']}]\n{mgr_text}"
+
+        await on_message({"type": "status_update", "agent_id": manager["id"], "agent_name": manager["name"], "status": "idle", "timestamp": _ts()})
+
+        # Quality scoring
+        try:
+            score = await score_response(manager["name"], manager["role"], dept_task_prompt, mgr_text)
+            existing_score = manager.get("quality_score") or 100.0
+            await on_message({"type": "quality_score", "agent_name": manager["name"], "score": score, "timestamp": _ts()})
+            if should_flag_for_strike(score, existing_score):
+                await on_message({"type": "strike_flag", "agent_name": manager["name"], "reason": f"Quality score {score:.0f}/100 — below threshold", "timestamp": _ts()})
+            new_quality = update_rolling_score(existing_score, score)
+            await _update_agent_quality(manager["id"], new_quality)
+        except Exception:
+            pass
+
+        return result, {"manager": manager, "dept_task_prompt": dept_task_prompt, "mgr_text": mgr_text}
+
+    except Exception as e:
+        await on_message({"type": "status_update", "agent_id": manager["id"], "agent_name": manager["name"], "status": "idle", "timestamp": _ts()})
+        return f"[{manager['name']}] Error: {str(e)}", {}
 
 
 async def run_mission(
@@ -192,24 +296,31 @@ async def run_mission(
     agents: list[dict],
     on_message: OnMessage,
 ) -> str:
-    """
-    Run a mission through the colony hierarchy.
-    Emits structured message events via on_message for the UI.
-    Returns the final result string.
-    """
+    mission_id = mission.get("id", "unknown")
+    cancel = asyncio.Event()
+    _cancel_flags[mission_id] = cancel
+
+    try:
+        return await _run_mission_inner(mission, agents, on_message, cancel)
+    finally:
+        _cancel_flags.pop(mission_id, None)
+
+
+async def _run_mission_inner(
+    mission: dict,
+    agents: list[dict],
+    on_message: OnMessage,
+    cancel: asyncio.Event,
+) -> str:
     founder_id = next((a["id"] for a in agents if a.get("is_founder")), None)
     executive = next((a for a in agents if a.get("tier") == "executive" and not a.get("is_founder")), None)
 
     if not executive:
         return "No Sr. Executive available to handle this mission."
 
-    await on_message({
-        "type": "status",
-        "text": f"Mission received. Routing to {executive['name']}...",
-        "timestamp": datetime.utcnow().isoformat(),
-    })
+    await on_message({"type": "status", "text": f"Mission received. Routing to {executive['name']}...", "timestamp": _ts()})
 
-    # Step 1 — Sr. Executive receives and plans
+    # Step 1 — Executive plans
     exec_prompt = f"""A new mission has come in from the Founder.
 
 MISSION: {mission['title']}
@@ -237,127 +348,33 @@ TIMELINE: [estimated completion]"""
         msg_type="update",
     )
 
-    # Step 2 — Parse which departments are involved and dispatch only those managers
+    if cancel.is_set():
+        await _emit_cancelled(on_message, agents)
+        return ""
+
+    # Step 2 — Dispatch managers in parallel
     managers = [a for a in agents if a.get("tier") == "manager"]
     involved_depts = _parse_involved_departments(exec_text)
     active_managers = [m for m in managers if _manager_is_involved(m, involved_depts)]
-    results = []
 
-    # Track per-manager data for post-mission memory compression
-    manager_conversations = {}
+    manager_tasks = [
+        _run_manager(m, executive, mission, exec_text, agents, on_message, cancel)
+        for m in active_managers
+    ]
+    manager_outputs = await asyncio.gather(*manager_tasks)
 
-    for manager in active_managers:
-        dept_task_prompt = f"""You have been assigned a sub-task from the Sr. Executive for the following mission:
+    if cancel.is_set():
+        await _emit_cancelled(on_message, agents)
+        return ""
 
-MISSION: {mission['title']}
-EXECUTIVE PLAN:
-{exec_text}
+    results = [text for text, _ in manager_outputs]
+    manager_conversations = {
+        data["manager"]["id"]: data
+        for _, data in manager_outputs
+        if data and "manager" in data
+    }
 
-Your department: {manager['department']}
-Your role: {manager['role']}
-
-Execute the relevant portion of this mission for your department. 
-Be specific, thorough, and professional. Return your findings/work product."""
-
-        await on_message({
-            "type": "agent_message",
-            "from_id": executive["id"],
-            "from_name": executive["name"],
-            "from_role": executive["role"],
-            "to_id": manager["id"],
-            "content": f"[Internal delegation to {manager['name']}]",
-            "msg_type": "internal",
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-
-        await on_message({
-            "type": "status_update",
-            "agent_id": manager["id"],
-            "agent_name": manager["name"],
-            "status": "working",
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-
-        mgr_text = ""
-        try:
-            mgr_response = await call_agent(manager, [{"role": "user", "content": dept_task_prompt}])
-            mgr_text = mgr_response.choices[0].message.content or ""
-
-            # --- Task 3: Worker delegation ---
-            manager_id = manager["id"]
-            workers = [
-                a for a in agents
-                if a.get("tier") == "worker"
-                and (a.get("manager_id") == manager_id or a.get("managerId") == manager_id)
-            ]
-
-            if workers:
-                # Delegate to workers in parallel
-                worker_tasks = [
-                    _run_worker(w, manager, mission, mgr_text, on_message)
-                    for w in workers
-                ]
-                worker_results = await asyncio.gather(*worker_tasks)
-
-                # Manager synthesizes worker output
-                worker_summary = "\n\n".join(worker_results)
-                synthesis_prompt = f"""You delegated sub-tasks to your team. Here are their results:
-
-{worker_summary}
-
-Now provide a final synthesis of all work completed, integrating the team's contributions into a cohesive department report."""
-
-                synthesis_response = await call_agent(manager, [{"role": "user", "content": synthesis_prompt}])
-                mgr_text = synthesis_response.choices[0].message.content or mgr_text
-
-            results.append(f"[{manager['name']} — {manager['role']}]\n{mgr_text}")
-
-            await on_message({
-                "type": "status_update",
-                "agent_id": manager["id"],
-                "agent_name": manager["name"],
-                "status": "idle",
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-
-            # --- Task 2: Quality scoring ---
-            try:
-                score = await score_response(manager["name"], manager["role"], dept_task_prompt, mgr_text)
-                existing_score = manager.get("quality_score") or 100.0
-
-                await on_message({
-                    "type": "quality_score",
-                    "agent_name": manager["name"],
-                    "score": score,
-                    "timestamp": datetime.utcnow().isoformat(),
-                })
-
-                if should_flag_for_strike(score, existing_score):
-                    await on_message({
-                        "type": "strike_flag",
-                        "agent_name": manager["name"],
-                        "reason": f"Quality score {score:.0f}/100 — below threshold",
-                        "timestamp": datetime.utcnow().isoformat(),
-                    })
-
-                new_quality = update_rolling_score(existing_score, score)
-                await _update_agent_quality(manager["id"], new_quality)
-            except Exception:
-                pass  # quality scoring failure should not abort the mission
-
-        except Exception as e:
-            results.append(f"[{manager['name']}] Error: {str(e)}")
-
-        # Store conversation for memory compression
-        manager_conversations[manager["id"]] = {
-            "manager": manager,
-            "dept_task_prompt": dept_task_prompt,
-            "mgr_text": mgr_text,
-        }
-
-        await asyncio.sleep(0.5)
-
-    # Step 3 — Sr. Executive compiles final report
+    # Step 3 — Executive compiles final report
     compile_prompt = f"""You have received work product from all relevant departments for this mission:
 
 MISSION: {mission['title']}
@@ -382,13 +399,9 @@ Format it professionally as a formal report."""
         mission_title=mission["title"],
     )
 
-    await on_message({
-        "type": "mission_complete",
-        "mission_id": mission.get("id"),
-        "timestamp": datetime.utcnow().isoformat(),
-    })
+    await on_message({"type": "mission_complete", "mission_id": mission.get("id"), "timestamp": _ts()})
 
-    # --- Task 1: Post-mission memory compression for each manager ---
+    # Post-mission memory compression
     for mgr_id, data in manager_conversations.items():
         try:
             manager = data["manager"]
@@ -399,6 +412,20 @@ Format it professionally as a formal report."""
             new_memory = await compress_memory(manager.get("memory_context", "") or "", conversation)
             await _update_agent_memory(mgr_id, new_memory)
         except Exception:
-            pass  # memory update failure should not affect mission result
+            pass
 
     return final_text
+
+
+async def _emit_cancelled(on_message: OnMessage, agents: list[dict]) -> None:
+    """Reset all agent statuses and emit cancellation event."""
+    for agent in agents:
+        if agent.get("status") in ("working", "thinking", "chatting"):
+            await on_message({
+                "type": "status_update",
+                "agent_id": agent["id"],
+                "agent_name": agent.get("name", ""),
+                "status": "idle",
+                "timestamp": _ts(),
+            })
+    await on_message({"type": "mission_cancelled", "timestamp": _ts()})

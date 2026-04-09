@@ -6,6 +6,7 @@ import { RewardModal } from '../hr/RewardModal'
 import { useColonyStore } from '../../stores/colonyStore'
 import { useUIStore } from '../../stores/uiStore'
 import { departmentColors, departmentLabels } from '../../lib/departments'
+import { getModelLabel } from '../../lib/models'
 import type { Agent } from '../../types/agent'
 
 // ── Procedural barcode from a seed string ──
@@ -122,11 +123,6 @@ function StatBox({
   )
 }
 
-const MODEL_LABELS: Record<string, string> = {
-  'claude-3-5-sonnet': 'CLAUDE 3.5',
-  'gpt-4o': 'GPT-4O',
-  'gemini-1.5-pro': 'GEMINI 1.5',
-}
 
 const STATUS_LABELS: Record<string, string> = {
   idle:       'STANDBY',
@@ -357,7 +353,7 @@ export function AgentProfilePanel() {
                         value={STATUS_LABELS[agent.status] || agent.status.toUpperCase()}
                         valueColor={statusColor}
                       />
-                      <DataRow label="MODEL"    value={MODEL_LABELS[agent.model] || agent.model.toUpperCase()} />
+                      <DataRow label="MODEL"    value={getModelLabel(agent.model).toUpperCase()} />
                       <DataRow label="TENURE"   value={`${tenure} DAYS`} />
                       {manager && (
                         <DataRow

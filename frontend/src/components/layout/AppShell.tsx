@@ -15,7 +15,7 @@ import {
   UserPlus, Settings, Users, Wifi, WifiOff, Activity, Bell,
 } from 'lucide-react'
 import { useState, useEffect, useCallback } from 'react'
-import { api } from '../../lib/api'
+import { api, connectSocket } from '../../lib/api'
 
 const NAV_ITEMS = [
   { id: 'dashboard',       icon: LayoutDashboard, label: 'Dashboard'       },
@@ -28,7 +28,7 @@ const NAV_ITEMS = [
 
 export function AppShell() {
   const { activeView, setActiveView } = useUIStore()
-  const { colony, agents, missions }  = useColonyStore()
+  const { colony, agents, missions, resetAgentStatuses } = useColonyStore()
   const { hiringRecs }               = useHRStore()
   const [backendOnline, setBackendOnline] = useState(false)
 
@@ -47,6 +47,19 @@ export function AppShell() {
     const t = setInterval(check, 30_000)
     return () => clearInterval(t)
   }, [])
+
+  // ── DB sync: push localStorage agents to backend if DB is empty ───────────
+  // Happens when the founding ceremony ran while the backend was offline.
+  useEffect(() => {
+    if (!backendOnline || agents.length === 0) return
+    api.get('/api/agents/').then((dbAgents: any[]) => {
+      if (dbAgents.length > 0) return  // DB already populated — nothing to do
+      const socket = connectSocket()
+      agents.forEach(agent => {
+        socket.emit('new_hire_onboarding', { agent })
+      })
+    }).catch(() => {/* backend not ready yet */})
+  }, [backendOnline, agents])
 
   return (
     <div className="fixed inset-0 flex" style={{ backgroundColor: 'var(--color-background)' }}>
@@ -311,6 +324,33 @@ export function AppShell() {
                 {activeAgents.length > 3 ? ` +${activeAgents.length - 3}` : ''}
                 {' — WORKING'}
               </span>
+            </button>
+          )}
+
+          {/* Reset stuck agents button */}
+          {activeAgents.length > 0 && (
+            <button
+              onClick={resetAgentStatuses}
+              title="Force-reset all agent statuses to idle"
+              style={{
+                padding: '3px 10px', borderRadius: 20,
+                backgroundColor: 'hsl(0 72% 51% / 0.08)',
+                border: '1px solid hsl(0 72% 51% / 0.3)',
+                color: 'var(--color-danger)',
+                fontFamily: 'var(--font-mono)', fontSize: '8px',
+                letterSpacing: '0.12em', cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.backgroundColor = 'hsl(0 72% 51% / 0.18)'
+                e.currentTarget.style.borderColor = 'hsl(0 72% 51% / 0.55)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.backgroundColor = 'hsl(0 72% 51% / 0.08)'
+                e.currentTarget.style.borderColor = 'hsl(0 72% 51% / 0.3)'
+              }}
+            >
+              RESET
             </button>
           )}
 
