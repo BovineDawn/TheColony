@@ -45,16 +45,44 @@ Think: **Rimworld meets a real AI agent framework**.
 <div align="center">
 
 ### Morning Briefing — Command Center Dashboard
-<img src="docs/screenshots/dashboard-with-agents.png" alt="The Colony Dashboard" width="100%"/>
+<img src="docs/screenshots/dashboard.png" alt="The Colony Dashboard" width="100%"/>
 
-*Department roster with color-coded status, live colony health, real-time stat strip, and mission dispatch*
+*Department roster with color-coded status, live colony health, real-time stat strip, and L&D autopilot*
 
 ---
 
-### Founding Day — Hiring Your First Team
-<img src="docs/screenshots/hiring-card.png" alt="Founding Hires" width="80%"/>
+### Colony Map — Rimworld-Style Agent Canvas
+<img src="docs/screenshots/colony-map.png" alt="Colony Map" width="100%"/>
 
-*Each founding member is a uniquely generated AI agent with personality, skills, and a recommended role*
+*Every agent lives as an animated ID card tile. Department zones glow in distinct colors. L&D autopilot widget shows in real time.*
+
+---
+
+### Mission Control — Slack-Style Command Channel
+<img src="docs/screenshots/mission-control.png" alt="Mission Control" width="100%"/>
+
+*Slack-style channel with mission history sidebar, quick-launch chips, and live streaming responses*
+
+---
+
+### Org Chart — Live Hierarchy
+<img src="docs/screenshots/org-chart.png" alt="Org Chart" width="100%"/>
+
+*Live SVG hierarchy built from real agent data. Click any node to open the Colonist ID Dossier.*
+
+---
+
+### Founder Inbox — Mission Reports
+<img src="docs/screenshots/founder-inbox.png" alt="Founder Inbox" width="100%"/>
+
+*Mission reports render as expandable cards with full markdown — summaries, deliverables, next steps, decisions required*
+
+---
+
+### Colonist ID Dossier — Agent Profile
+<img src="docs/screenshots/agent-profile.png" alt="Agent Profile" width="100%"/>
+
+*Full dossier: skills, strikes, commendations, org links, personality — plus the Train with NOVA chat at the bottom*
 
 </div>
 
