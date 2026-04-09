@@ -283,6 +283,7 @@ class GenerateCandidateRequest(BaseModel):
     role: str
     department: str
     model: str = "gpt-4o"
+    description: Optional[str] = None  # job duties / skills context for custom depts
 
 _VALID_LEVELS = {'junior', 'mid', 'senior', 'advanced', 'expert'}
 _MODEL_MAP = {
@@ -293,16 +294,21 @@ _MODEL_MAP = {
 
 @router.post("/generate-candidate")
 async def generate_founding_candidate(data: GenerateCandidateRequest):
+    description_block = f"\nROLE CONTEXT: {data.description}\n" if data.description else ""
+    skills_note = (
+        "- SKILLS must be directly derived from the Role Context above (4 skills tailored to those duties)"
+        if data.description
+        else "- SKILLS must be relevant to the role (4 skills)"
+    )
     prompt = f"""Generate a unique AI agent character for The Colony — a futuristic workforce simulation.
 
 POSITION: {data.role}
 DEPARTMENT: {data.department.upper()}
-POWERED BY: {data.model}
-
+POWERED BY: {data.model}{description_block}
 Rules:
 - NAME must be a short all-caps codename (4-6 letters, one word, not a real name)
 - PERSONALITY must be ONE specific working trait — no generic phrases like "hardworking" or "dedicated"
-- SKILLS must be relevant to the role (4 skills)
+- {skills_note}
 - RECOMMENDATION must read like a real hiring manager pitch (2-3 sentences)
 
 Respond in EXACTLY this format (no extra lines, no preamble):

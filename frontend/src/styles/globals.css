@@ -67,6 +67,46 @@ body::after {
   z-index: 9999;
 }
 
+/* ── Scanline overlay ── */
+.scanlines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 0, 0, 0.07) 3px,
+    rgba(0, 0, 0, 0.07) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── Amber HUD section header ── */
+.hud-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.hud-section::before,
+.hud-section::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: hsl(42 65% 52% / 0.18);
+}
+.hud-section span {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--color-amber);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: var(--color-surface); }

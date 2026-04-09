@@ -449,20 +449,23 @@ export function MissionControl() {
       {/* ── Command Center Header ── */}
       <div className="shrink-0 flex items-center gap-3 px-5 py-2.5"
         style={{
-          backgroundColor: 'var(--color-surface)',
-          borderBottom: '1px solid var(--color-border)',
+          backgroundColor: 'hsl(215 22% 7%)',
+          borderBottom: '1px solid hsl(42 65% 52% / 0.15)',
+          position: 'relative',
         }}>
+        {/* Amber left accent */}
+        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, backgroundColor: 'var(--color-amber)', opacity: 0.7 }} />
 
         {/* Brand */}
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-            style={{ backgroundColor: 'hsl(189 100% 50% / 0.1)', border: '1px solid hsl(189 100% 50% / 0.25)' }}>
-            <Terminal size={13} style={{ color: 'var(--color-primary)' }} />
+          <div className="w-7 h-7 flex items-center justify-center shrink-0"
+            style={{ backgroundColor: 'hsl(42 65% 52% / 0.1)', border: '1px solid hsl(42 65% 52% / 0.3)' }}>
+            <Terminal size={13} style={{ color: 'var(--color-amber)' }} />
           </div>
           <div className="min-w-0">
             <p className="font-mono text-xs font-semibold tracking-widest leading-none"
-              style={{ color: 'var(--color-primary)', letterSpacing: '0.12em' }}>
-              COMMAND CENTER
+              style={{ fontFamily: 'var(--font-display)', color: 'var(--color-amber)', letterSpacing: '0.25em', fontSize: '11px', fontWeight: 700 }}>
+              MISSION CONTROL
             </p>
             {isRunning && missionTitle ? (
               <p className="font-mono leading-none mt-0.5 truncate max-w-[180px]"
@@ -959,8 +962,8 @@ export function MissionControl() {
       {/* ── Input ── */}
       <div className="shrink-0 flex flex-col gap-2.5 p-4"
         style={{
-          backgroundColor: 'var(--color-surface)',
-          borderTop: '1px solid var(--color-border)',
+          backgroundColor: 'hsl(215 22% 7%)',
+          borderTop: '1px solid hsl(42 65% 52% / 0.15)',
         }}>
 
         {/* Formal extras */}
@@ -982,7 +985,7 @@ export function MissionControl() {
                   border: '1px solid var(--color-border)',
                   color: 'var(--color-text-primary)',
                 }}
-                onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}
+                onFocus={e => e.currentTarget.style.borderColor = \'var(--color-amber)\'}
                 onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
               />
               <select
@@ -1025,23 +1028,23 @@ export function MissionControl() {
               lineHeight: 1.5,
               opacity: isRunning ? 0.5 : 1,
             }}
-            onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}
+            onFocus={e => e.currentTarget.style.borderColor = 'var(--color-amber)'}
             onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
           />
 
           <button
             onClick={handleSend}
             disabled={!input.trim() || isRunning}
-            className="flex items-center justify-center rounded-xl transition-all"
+            className="flex items-center justify-center transition-all"
             style={{
               width: '44px',
               height: '44px',
               flexShrink: 0,
-              backgroundColor: input.trim() && !isRunning ? 'var(--color-primary)' : 'var(--color-surface-raised)',
-              border: `1px solid ${input.trim() && !isRunning ? 'var(--color-primary)' : 'var(--color-border)'}`,
+              backgroundColor: input.trim() && !isRunning ? 'var(--color-amber)' : 'var(--color-surface-raised)',
+              border: `1px solid ${input.trim() && !isRunning ? 'var(--color-amber)' : 'var(--color-border)'}`,
               color: input.trim() && !isRunning ? 'var(--color-background)' : 'var(--color-text-muted)',
               cursor: input.trim() && !isRunning ? 'pointer' : 'not-allowed',
-              boxShadow: input.trim() && !isRunning ? 'var(--shadow-glow-primary)' : 'none',
+              boxShadow: input.trim() && !isRunning ? 'var(--shadow-glow-amber)' : 'none',
             }}>
             {isRunning
               ? <Loader2 size={16} className="animate-spin" />

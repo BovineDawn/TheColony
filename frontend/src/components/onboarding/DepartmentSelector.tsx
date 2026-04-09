@@ -7,6 +7,7 @@ export interface DeptSelection {
   role: string         // e.g. 'Head of Engineering'
   color: string        // CSS color
   isCustom: boolean
+  description?: string // job duties / skills context for AI generation
 }
 
 // ── Preset departments ────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ export function DepartmentSelector({ onComplete }: DepartmentSelectorProps) {
   const [showAddForm, setShowAddForm] = useState(false)
   const [newDeptName, setNewDeptName] = useState('')
   const [newRoleTitle, setNewRoleTitle] = useState('')
+  const [newDescription, setNewDescription] = useState('')
 
   const togglePreset = (dept: string) => {
     setActivePresets(prev => {
@@ -101,11 +103,13 @@ export function DepartmentSelector({ onComplete }: DepartmentSelectorProps) {
       role,
       color: CUSTOM_COLORS[colorIndex],
       isCustom: true,
+      description: newDescription.trim() || undefined,
     }
 
     setCustomDepts(prev => [...prev, newDept])
     setNewDeptName('')
     setNewRoleTitle('')
+    setNewDescription('')
     setShowAddForm(false)
   }
 
@@ -391,7 +395,7 @@ export function DepartmentSelector({ onComplete }: DepartmentSelectorProps) {
                   <input
                     value={newRoleTitle}
                     onChange={e => setNewRoleTitle(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') addCustomDept(); if (e.key === 'Escape') setShowAddForm(false) }}
+                    onKeyDown={e => { if (e.key === 'Escape') setShowAddForm(false) }}
                     placeholder={`Role title (default: Head of ${newDeptName || '…'})`}
                     style={{
                       flex: 1, padding: '8px 12px',
@@ -405,9 +409,37 @@ export function DepartmentSelector({ onComplete }: DepartmentSelectorProps) {
                     onBlur={e => e.currentTarget.style.borderColor = 'hsl(42 65% 52% / 0.2)'}
                   />
                 </div>
+                <div>
+                  <div style={{
+                    fontFamily: 'var(--font-mono)', fontSize: '8px',
+                    letterSpacing: '0.2em', color: 'hsl(42 65% 52% / 0.4)',
+                    marginBottom: 4,
+                  }}>
+                    JOB DUTIES &amp; SKILLS NEEDED — AI will generate tailored skills from this
+                  </div>
+                  <textarea
+                    value={newDescription}
+                    onChange={e => setNewDescription(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Escape') setShowAddForm(false) }}
+                    placeholder={`e.g. Responsible for brand strategy, social media campaigns, customer acquisition, SEO, and paid advertising. Should have strong copywriting, analytics, and growth hacking skills.`}
+                    rows={3}
+                    style={{
+                      width: '100%', padding: '8px 12px',
+                      backgroundColor: 'var(--color-surface-raised)',
+                      border: `1px solid hsl(42 65% 52% / 0.2)`,
+                      color: 'var(--color-text-primary)',
+                      fontFamily: 'var(--font-mono)', fontSize: '11px',
+                      outline: 'none', resize: 'vertical',
+                      lineHeight: 1.5,
+                      boxSizing: 'border-box',
+                    }}
+                    onFocus={e => e.currentTarget.style.borderColor = 'hsl(42 65% 52% / 0.5)'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'hsl(42 65% 52% / 0.2)'}
+                  />
+                </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                   <button
-                    onClick={() => { setShowAddForm(false); setNewDeptName(''); setNewRoleTitle('') }}
+                    onClick={() => { setShowAddForm(false); setNewDeptName(''); setNewRoleTitle(''); setNewDescription('') }}
                     style={{
                       padding: '7px 14px', background: 'none',
                       border: `1px solid hsl(42 65% 52% / 0.15)`,

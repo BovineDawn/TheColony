@@ -62,16 +62,16 @@ const ACTIVITY_COLORS: Record<string, string> = {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-      <div style={{ width: 16, height: 1, backgroundColor: 'var(--color-border)' }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+      <div style={{ width: 4, height: 10, backgroundColor: 'var(--color-amber)', opacity: 0.7, flexShrink: 0 }} />
       <p style={{
-        fontFamily: 'var(--font-mono)', fontSize: '8px',
-        letterSpacing: '0.2em', color: 'var(--color-text-dim)',
+        fontFamily: 'var(--font-display)', fontSize: '10px', fontWeight: 700,
+        letterSpacing: '0.28em', color: 'var(--color-amber)',
         textTransform: 'uppercase', whiteSpace: 'nowrap',
       }}>
         {children}
       </p>
-      <div style={{ flex: 1, height: 1, backgroundColor: 'var(--color-border)' }} />
+      <div style={{ flex: 1, height: 1, backgroundColor: 'hsl(42 65% 52% / 0.18)' }} />
     </div>
   )
 }
@@ -161,14 +161,14 @@ export function MorningBriefing() {
         <div style={{
           position: 'absolute', top: 0, left: 0,
           width: 60, height: 60, pointerEvents: 'none',
-          borderTop: '1px solid hsl(189 100% 50% / 0.2)',
-          borderLeft: '1px solid hsl(189 100% 50% / 0.2)',
+          borderTop: '1px solid hsl(42 65% 52% / 0.3)',
+          borderLeft: '1px solid hsl(42 65% 52% / 0.3)',
         }} />
         <div style={{
           position: 'absolute', top: 0, right: 0,
           width: 60, height: 60, pointerEvents: 'none',
-          borderTop: '1px solid hsl(189 100% 50% / 0.2)',
-          borderRight: '1px solid hsl(189 100% 50% / 0.2)',
+          borderTop: '1px solid hsl(42 65% 52% / 0.3)',
+          borderRight: '1px solid hsl(42 65% 52% / 0.3)',
         }} />
 
         <div style={{ padding: '20px 32px', display: 'flex', alignItems: 'center', gap: 20, position: 'relative', zIndex: 1 }}>
@@ -177,7 +177,7 @@ export function MorningBriefing() {
           <div style={{ flex: 1 }}>
             <p style={{
               fontFamily: 'var(--font-mono)', fontSize: '8px',
-              letterSpacing: '0.28em', color: 'var(--color-primary)',
+              letterSpacing: '0.28em', color: 'var(--color-amber)',
               marginBottom: 5, opacity: 0.7,
             }}>
               COLONY HEADQUARTERS

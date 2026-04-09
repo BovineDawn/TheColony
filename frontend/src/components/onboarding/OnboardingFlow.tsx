@@ -184,7 +184,9 @@ export function OnboardingFlow({ onComplete, selectedDepartments }: OnboardingFl
     : template
 
   const generateCandidate = useCallback(async (index: number) => {
-    const t = activeCandidates[index] // activeCandidates is stable (derived from props)
+    const t = activeCandidates[index]
+    // Find the DeptSelection for this candidate to get custom description
+    const deptSel = selectedDepartments?.find(d => d.department === t.department)
     setIsGenerating(true)
     setGeneratedOverride(null)
     try {
@@ -192,6 +194,7 @@ export function OnboardingFlow({ onComplete, selectedDepartments }: OnboardingFl
         role: t.role,
         department: t.department,
         model: t.model,
+        description: deptSel?.description || undefined,
       })
       if (result?.name) {
         setGeneratedOverride({

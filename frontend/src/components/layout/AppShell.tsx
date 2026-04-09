@@ -70,7 +70,12 @@ export function AppShell() {
   }, [backendOnline])
 
   return (
-    <div className="fixed inset-0 flex" style={{ backgroundColor: 'var(--color-background)' }}>
+    <div className="fixed inset-0 flex" style={{ backgroundColor: 'var(--color-background)', position: 'relative' }}>
+      {/* Global scanline overlay */}
+      <div style={{
+        position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9998,
+        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.06) 3px, rgba(0,0,0,0.06) 4px)',
+      }} />
       <GlobalSocketHandler />
 
       {/* ══════════════════════════════════════
@@ -263,9 +268,12 @@ export function AppShell() {
           height: '48px',
           padding: '0 20px',
           backgroundColor: 'hsl(215 22% 7%)',
-          borderBottom: '1px solid var(--color-border)',
+          borderBottom: '1px solid hsl(42 65% 52% / 0.12)',
           gap: 16,
+          position: 'relative',
         }}>
+          {/* Amber bottom accent line */}
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1, backgroundColor: 'hsl(42 65% 52% / 0.2)' }} />
 
           {/* LEFT: colony identity */}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
