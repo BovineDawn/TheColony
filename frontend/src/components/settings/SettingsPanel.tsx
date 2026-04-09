@@ -80,7 +80,22 @@ export function SettingsPanel() {
 
   const handleReset = () => {
     if (window.confirm('Reset the entire colony? This cannot be undone.')) {
-      reset()
+      // Clear every persisted store so the app boots fresh from the intro screen
+      const STORE_KEYS = [
+        'the-colony-store',
+        'the-colony-hr-store',
+        'the-colony-activity',
+        'the-colony-ld',
+        'the-colony-mission-history',
+        'the-colony-training',
+        PREF_KEY,
+      ]
+      STORE_KEYS.forEach(k => localStorage.removeItem(k))
+
+      // Also reset backend DB if reachable
+      api.post('/api/agents/reset').catch(() => {/* backend offline */})
+
+      window.location.reload()
     }
   }
 

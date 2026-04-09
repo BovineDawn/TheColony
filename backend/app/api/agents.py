@@ -6,6 +6,8 @@ import uuid, json
 from datetime import datetime
 from app.db.database import get_db
 from app.models.agent import AgentModel
+from app.models.mission import MissionModel, MessageModel
+from app.models.hr import StrikeModel, TrainingSessionModel, HiringRecModel, RewardModel
 
 router = APIRouter()
 
@@ -99,6 +101,27 @@ def update_agent(agent_id: str, data: AgentUpdate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(agent)
     return agent_to_dict(agent)
+
+@router.post("/reset")
+def reset_colony(db: Session = Depends(get_db)):
+    """Wipe all colony data so a fresh onboarding can begin."""
+    db.query(MessageModel).delete()
+    db.query(MissionModel).delete()
+    db.query(StrikeModel).delete()
+    db.query(TrainingSessionModel).delete()
+    db.query(HiringRecModel).delete()
+    db.query(RewardModel).delete()
+    db.query(AgentModel).delete()
+    db.commit()
+    # Reset L&D state so the cycle runs fresh on next startup
+    try:
+        from pathlib import Path
+        state_file = Path(__file__).parents[3] / "docs" / "ld-state.json"
+        if state_file.exists():
+            state_file.write_text('{"last_run": null}', encoding="utf-8")
+    except Exception:
+        pass
+    return {"success": True}
 
 @router.delete("/{agent_id}")
 def terminate_agent(agent_id: str, db: Session = Depends(get_db)):
