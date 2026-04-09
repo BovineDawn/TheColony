@@ -5,7 +5,7 @@ import { FoundingWizard } from './components/onboarding/FoundingWizard'
 import { DepartmentSelector } from './components/onboarding/DepartmentSelector'
 import { OnboardingFlow } from './components/onboarding/OnboardingFlow'
 import { AppShell } from './components/layout/AppShell'
-import type { Department } from './types/agent'
+import type { DeptSelection } from './components/onboarding/DepartmentSelector'
 
 type AppPhase = 'intro' | 'founding' | 'dept-select' | 'onboarding' | 'active'
 
@@ -18,9 +18,9 @@ export default function App() {
     return 'active'
   })
 
-  const [selectedDepts, setSelectedDepts] = useState<Department[]>([])
+  const [selectedDepts, setSelectedDepts] = useState<DeptSelection[]>([])
 
-  const handleDeptsChosen = (depts: Department[]) => {
+  const handleDeptsChosen = (depts: DeptSelection[]) => {
     setSelectedDepts(depts)
     setPhase('onboarding')
   }

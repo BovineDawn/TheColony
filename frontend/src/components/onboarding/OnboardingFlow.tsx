@@ -1,15 +1,16 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2 } from 'lucide-react'
 import { useColonyStore } from '../../stores/colonyStore'
 import { HireCard } from './HireCard'
 import { connectSocket, api } from '../../lib/api'
 import type { Agent, Department, AIModel, AgentSkill } from '../../types/agent'
+import type { DeptSelection } from './DepartmentSelector'
 
 interface FoundingCandidate {
   name: string
   role: string
-  department: Department
+  department: string  // string to support custom departments
   model: AIModel
   personalityNote: string
   skills: AgentSkill[]
@@ -17,6 +18,20 @@ interface FoundingCandidate {
   tilePosition: { x: number; y: number }
   managerId: string
 }
+
+// Tile positions for each known department, plus overflow slots for custom depts
+const DEPT_TILE_POSITIONS: Record<string, { x: number; y: number }> = {
+  executive:   { x: 7, y: 1 },
+  engineering: { x: 1, y: 4 },
+  research:    { x: 6, y: 4 },
+  writing:     { x: 11, y: 4 },
+  legal:       { x: 1, y: 8 },
+  ld:          { x: 11, y: 8 },
+}
+const CUSTOM_TILE_OVERFLOW = [
+  { x: 5, y: 8 }, { x: 5, y: 3 }, { x: 3, y: 6 },
+  { x: 8, y: 6 }, { x: 12, y: 6 }, { x: 2, y: 5 },
+]
 
 const FOUNDING_CANDIDATES: FoundingCandidate[] = [
   {
@@ -119,14 +134,41 @@ const FOUNDING_CANDIDATES: FoundingCandidate[] = [
 
 interface OnboardingFlowProps {
   onComplete: () => void
-  selectedDepartments?: Department[]
+  selectedDepartments?: DeptSelection[]
 }
 
 export function OnboardingFlow({ onComplete, selectedDepartments }: OnboardingFlowProps) {
-  // Filter to only selected departments (or all if none specified — backwards compat)
-  const activeCandidates = selectedDepartments && selectedDepartments.length > 0
-    ? FOUNDING_CANDIDATES.filter(c => selectedDepartments.includes(c.department))
-    : FOUNDING_CANDIDATES
+  // Build the active candidate list from DeptSelection (supports custom departments)
+  const activeCandidates = useMemo<FoundingCandidate[]>(() => {
+    if (!selectedDepartments || selectedDepartments.length === 0) return FOUNDING_CANDIDATES
+
+    let customOverflowIdx = 0
+    return selectedDepartments.map((sel) => {
+      // Try to find a hardcoded template for this department
+      const template = FOUNDING_CANDIDATES.find(c => c.department === sel.department)
+      if (template) return template
+
+      // Custom department — build a placeholder (LLM generation happens in generateCandidate)
+      const tilePosition = DEPT_TILE_POSITIONS[sel.department]
+        ?? CUSTOM_TILE_OVERFLOW[customOverflowIdx++ % CUSTOM_TILE_OVERFLOW.length]
+
+      return {
+        name: sel.label.charAt(0) + sel.label.slice(1).toLowerCase(), // e.g. 'Marketing'
+        role: sel.role,
+        department: sel.department,
+        model: 'gpt-4o' as AIModel,
+        personalityNote: `Specialist in ${sel.label.toLowerCase()}. Highly capable and eager to contribute.`,
+        skills: [
+          { name: 'Leadership', level: 'expert' as const },
+          { name: 'Strategy', level: 'senior' as const },
+          { name: 'Communication', level: 'expert' as const },
+        ],
+        recommendation: `A strong candidate for leading the ${sel.label} department. Brings the expertise and drive the colony needs.`,
+        tilePosition,
+        managerId: 'agent-0002',
+      }
+    })
+  }, [selectedDepartments])
 
   const [hireIndex, setHireIndex] = useState(0)
   const [showComplete, setShowComplete] = useState(false)
@@ -172,15 +214,15 @@ export function OnboardingFlow({ onComplete, selectedDepartments }: OnboardingFl
   }, [hireIndex, generateCandidate])
 
   const handleApprove = (candidate: Partial<Agent>) => {
-    const agentId = hireIndex === 0 ? 'agent-0002' : `agent-${String(empNumber).padStart(4, '0')}`
+    const agentId = currentCandidate.department === 'executive' ? 'agent-0002' : `agent-${String(empNumber).padStart(4, '0')}`
 
     const newAgent: Agent = {
       id: agentId,
       employeeId: empNumber,
       name: candidate.name || currentCandidate.name,
       role: currentCandidate.role,
-      tier: hireIndex === 0 ? 'executive' : 'manager',
-      department: currentCandidate.department,
+      tier: currentCandidate.department === 'executive' ? 'executive' : 'manager',
+      department: currentCandidate.department as Department,
       model: currentCandidate.model,
       personalityNote: currentCandidate.personalityNote,
       skills: currentCandidate.skills,
@@ -188,7 +230,7 @@ export function OnboardingFlow({ onComplete, selectedDepartments }: OnboardingFl
       hiredAt: new Date().toISOString(),
       strikes: [],
       rewards: [],
-      managerId: currentCandidate.managerId === 'agent-0002' && hireIndex === 0
+      managerId: currentCandidate.department === 'executive'
         ? 'founder-0001'
         : currentCandidate.managerId,
       directReports: [],
