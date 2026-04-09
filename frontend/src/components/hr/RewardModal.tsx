@@ -5,6 +5,7 @@ import { useColonyStore } from '../../stores/colonyStore'
 import { useHRStore } from '../../stores/hrStore'
 import { useActivityStore } from '../../stores/activityStore'
 import { departmentColors } from '../../lib/departments'
+import { api } from '../../lib/api'
 import type { Agent } from '../../types/agent'
 
 interface RewardModalProps {
@@ -44,6 +45,15 @@ export function RewardModal({ agent, onClose }: RewardModalProps) {
 
     addReward({ id: rewardId, agentId: agent.id, type, title, reason, createdAt: now })
     addEvent({ type: 'reward_granted', message: `${agent.name} commended: ${title}`, agentName: agent.name })
+
+    // Persist to backend
+    api.post('/api/hr/rewards', {
+      agent_id: agent.id,
+      type,
+      title,
+      reason,
+      granted_by: 'founder',
+    }).catch(() => {/* backend offline — reward saved locally */})
 
     setSubmitted(true)
     setTimeout(onClose, 1600)

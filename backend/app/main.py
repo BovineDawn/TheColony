@@ -3,6 +3,11 @@ import uuid
 import os
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+# Load .env into os.environ BEFORE any service imports so LiteLLM
+# picks up API keys directly from the environment.
+load_dotenv()
 
 import socketio
 from fastapi import FastAPI
@@ -12,7 +17,7 @@ from app.api import agents, missions, hr, ld
 from app.db.database import create_tables, SessionLocal
 from app.models.agent import AgentModel
 from app.models.mission import MissionModel, MessageModel
-from app.services.orchestrator import run_mission
+from app.services.orchestrator import run_mission, cancel_all_missions
 from app.services.ld_service import run_ld_cycle, get_ld_status, run_onboarding_training
 
 # --- Socket.IO setup ---
@@ -229,6 +234,16 @@ async def send_mission(sid, data):
         }, to=sid)
 
 @sio.event
+async def cancel_missions(sid, data):
+    """Cancel all running missions."""
+    count = cancel_all_missions()
+    await sio.emit('colony_event', {
+        'type': 'mission_cancelled',
+        'text': f'All missions cancelled ({count} stopped)',
+        'timestamp': datetime.utcnow().isoformat(),
+    }, to=sid)
+
+@sio.event
 async def run_ld(sid, data):
     """Manual trigger for L&D cycle from the frontend."""
     status = get_ld_status()
@@ -273,7 +288,7 @@ async def new_hire_onboarding(sid, data):
                 role            = agent_data['role'],
                 tier            = agent_data.get('tier', 'worker'),
                 department      = agent_data['department'],
-                model           = agent_data.get('model', 'claude-3-5-sonnet'),
+                model           = agent_data.get('model', 'gpt-4o'),
                 personality_note= agent_data.get('personalityNote', ''),
                 skills          = agent_data.get('skills', []),
                 manager_id      = agent_data.get('managerId'),
@@ -296,7 +311,7 @@ async def new_hire_onboarding(sid, data):
         'role':            agent_data['role'],
         'tier':            agent_data.get('tier', 'worker'),
         'department':      agent_data['department'],
-        'model':           agent_data.get('model', 'claude-3-5-sonnet'),
+        'model':           agent_data.get('model', 'gpt-4o'),
         'personality_note':agent_data.get('personalityNote', ''),
         'skills':          agent_data.get('skills', []),
         'is_founder':      agent_data.get('isFounder', False),
@@ -310,6 +325,114 @@ async def new_hire_onboarding(sid, data):
         await sio.emit('colony_event', event)  # broadcast to all clients
 
     asyncio.create_task(run_onboarding_training(agent_dict, broadcast))
+
+
+@sio.event
+async def ld_direct(sid, data):
+    """
+    Founder sends training guidance / resources directly to NOVA (L&D Head).
+    data: { message: str, target_agent: str (optional agent name) }
+    """
+    from app.services.llm import call_agent as _call_agent
+
+    message     = data.get('message', '').strip()
+    target_name = data.get('target_agent', '').strip()
+    if not message:
+        return
+
+    db = SessionLocal()
+    try:
+        nova = db.query(AgentModel).filter(
+            AgentModel.department == 'ld',
+            AgentModel.tier      == 'manager',
+            AgentModel.is_active == True,
+        ).first()
+        if not nova:
+            await sio.emit('colony_event', {'type': 'error', 'text': 'L&D Head not found'}, to=sid)
+            return
+
+        target_ctx = ''
+        if target_name:
+            target = db.query(AgentModel).filter(AgentModel.name == target_name).first()
+            if target:
+                skills_str = ', '.join(f"{s['name']} ({s['level']})" for s in (target.skills or []))
+                target_ctx = f"TARGET COLONIST: {target.name} ({target.role}, {target.department} dept)\nCURRENT SKILLS: {skills_str or 'none recorded'}\n"
+
+        nova_dict = {
+            'id': nova.id, 'employee_id': nova.employee_id,
+            'name': nova.name, 'role': nova.role, 'tier': nova.tier,
+            'department': nova.department, 'model': nova.model,
+            'personality_note': nova.personality_note or '',
+            'skills': nova.skills or [],
+            'memory_context': nova.memory_context or '',
+        }
+
+        prompt = f"""The Founder is giving you direct L&D guidance.
+
+{target_ctx}FOUNDER MESSAGE:
+{message}
+
+Respond as Head of L&D:
+1. Confirm exactly what training action you will take
+2. Describe how you will incorporate the provided resources/feedback
+3. List any immediate skill updates or focus areas you are adding
+4. Give a realistic timeline
+
+Be specific and action-oriented. No vague promises."""
+
+        resp = await _call_agent(nova_dict, [{'role': 'user', 'content': prompt}])
+        content = resp.choices[0].message.content or ''
+
+        # ── Persist training directive to target agent ────────────────────────
+        if target_name:
+            target = db.query(AgentModel).filter(AgentModel.name == target_name).first()
+            if target:
+                ts_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+                directive_block = (
+                    f"\n\n[TRAINING DIRECTIVE — {ts_str}]\n"
+                    f"Founder: {message}\n"
+                    f"NOVA: {content}"
+                )
+                existing = target.memory_context or ''
+                # Append and cap at 4000 chars so it doesn't balloon indefinitely
+                target.memory_context = (existing + directive_block)[-4000:]
+                db.commit()
+
+                # Write to per-agent training log markdown file
+                try:
+                    from pathlib import Path as _Path
+                    _log_dir = _Path(__file__).parents[3] / 'docs' / 'ld-reports' / 'training'
+                    _log_dir.mkdir(parents=True, exist_ok=True)
+                    _log_file = _log_dir / f"{target_name.upper()}.md"
+                    _entry = (
+                        f"\n## {ts_str}\n\n"
+                        f"**Founder Input:**\n{message}\n\n"
+                        f"**NOVA's Training Plan:**\n{content}\n\n"
+                        f"---"
+                    )
+                    if _log_file.exists():
+                        with open(_log_file, 'a', encoding='utf-8') as f:
+                            f.write(_entry)
+                    else:
+                        with open(_log_file, 'w', encoding='utf-8') as f:
+                            f.write(f"# {target_name} — Training Log\n\n")
+                            f.write(_entry)
+                except Exception:
+                    pass  # non-fatal
+
+        await sio.emit('colony_event', {
+            'type':         'ld_direct_response',
+            'from_name':    nova.name,
+            'from_role':    nova.role,
+            'target_agent': target_name,
+            'content':      content,
+            'timestamp':    datetime.utcnow().isoformat(),
+        }, to=sid)
+
+    except Exception as e:
+        await sio.emit('colony_event', {'type': 'error', 'text': str(e)}, to=sid)
+    finally:
+        db.close()
 
 
 # Wrap in ASGI

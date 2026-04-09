@@ -137,7 +137,7 @@ class HiringRecCreate(BaseModel):
     department: str
     role: str
     name: str
-    model: str = "claude-3-5-sonnet"
+    model: str = "gpt-4o"
     personality_note: str = ""
     skills: list = []
     recommended_by: str
@@ -282,13 +282,13 @@ def grant_reward(data: RewardCreate, db: Session = Depends(get_db)):
 class GenerateCandidateRequest(BaseModel):
     role: str
     department: str
-    model: str = "claude-3-5-sonnet"
+    model: str = "gpt-4o"
 
 _VALID_LEVELS = {'junior', 'mid', 'senior', 'advanced', 'expert'}
 _MODEL_MAP = {
-    "claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
-    "gpt-4o": "gpt-4o",
-    "gemini-1.5-pro": "gemini/gemini-1.5-pro",
+    "claude-3-5-sonnet": "anthropic/claude-3-5-sonnet-20241022",
+    "gpt-4o":            "openai/gpt-4o",
+    "gemini-1.5-pro":    "gemini/gemini-2.5-flash",
 }
 
 @router.post("/generate-candidate")
@@ -314,7 +314,7 @@ RECOMMENDATION: [2-3 sentences]
 Valid skill levels: junior, mid, senior, advanced, expert"""
 
     try:
-        model = _MODEL_MAP.get(data.model, "claude-3-5-sonnet-20241022")
+        model = _MODEL_MAP.get(data.model, "openai/gpt-4o")
         response = await litellm.acompletion(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -354,6 +354,7 @@ Valid skill levels: junior, mid, senior, advanced, expert"""
 
 # ── Helpers ────────────────────────────────────────────
 def strike_dict(s: StrikeModel) -> dict:
+    created = s.created_at.isoformat() if s.created_at else ""
     return {
         "id": s.id,
         "agentId": s.agent_id,
@@ -363,7 +364,8 @@ def strike_dict(s: StrikeModel) -> dict:
         "issuedBy": s.issued_by,
         "resolved": s.resolved,
         "trainingCompleted": s.training_completed,
-        "createdAt": s.created_at.isoformat() if s.created_at else "",
+        "date": created,
+        "createdAt": created,
         "resolvedAt": s.resolved_at.isoformat() if s.resolved_at else None,
     }
 

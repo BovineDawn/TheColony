@@ -25,10 +25,14 @@ class AgentCreate(BaseModel):
 class AgentUpdate(BaseModel):
     name: Optional[str] = None
     status: Optional[str] = None
+    model: Optional[str] = None
     memory_context: Optional[str] = None
     strikes: Optional[list] = None
     rewards: Optional[list] = None
     quality_score: Optional[float] = None
+    personality_note: Optional[str] = None
+    skills: Optional[list] = None
+    manager_id: Optional[str] = None
 
 def agent_to_dict(a: AgentModel) -> dict:
     return {
@@ -91,7 +95,7 @@ def update_agent(agent_id: str, data: AgentUpdate, db: Session = Depends(get_db)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     for field, value in data.model_dump(exclude_none=True).items():
-        setattr(agent, field.replace("_", "_"), value)
+        setattr(agent, field, value)
     db.commit()
     db.refresh(agent)
     return agent_to_dict(agent)

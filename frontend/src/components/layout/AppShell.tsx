@@ -28,7 +28,7 @@ const NAV_ITEMS = [
 
 export function AppShell() {
   const { activeView, setActiveView } = useUIStore()
-  const { colony, agents, missions, resetAgentStatuses } = useColonyStore()
+  const { colony, agents, missions, resetAgentStatuses, updateAgent } = useColonyStore()
   const { hiringRecs }               = useHRStore()
   const [backendOnline, setBackendOnline] = useState(false)
 
@@ -48,18 +48,26 @@ export function AppShell() {
     return () => clearInterval(t)
   }, [])
 
-  // ── DB sync: push localStorage agents to backend if DB is empty ───────────
-  // Happens when the founding ceremony ran while the backend was offline.
+  // ── DB sync: push localStorage agents to backend if DB is empty,
+  //    otherwise pull DB-authoritative fields (model, etc.) into the store ──
   useEffect(() => {
     if (!backendOnline || agents.length === 0) return
     api.get('/api/agents/').then((dbAgents: any[]) => {
-      if (dbAgents.length > 0) return  // DB already populated — nothing to do
-      const socket = connectSocket()
-      agents.forEach(agent => {
-        socket.emit('new_hire_onboarding', { agent })
-      })
+      if (dbAgents.length === 0) {
+        // DB empty — founding ceremony ran offline, replay onboarding events
+        const socket = connectSocket()
+        agents.forEach(agent => socket.emit('new_hire_onboarding', { agent }))
+      } else {
+        // DB is authoritative for model — sync into store to fix stale localStorage values
+        dbAgents.forEach((dbAgent: any) => {
+          const local = agents.find(a => a.id === dbAgent.id || a.name === dbAgent.name)
+          if (local && dbAgent.model && local.model !== dbAgent.model) {
+            updateAgent(local.id, { model: dbAgent.model })
+          }
+        })
+      }
     }).catch(() => {/* backend not ready yet */})
-  }, [backendOnline, agents])
+  }, [backendOnline])
 
   return (
     <div className="fixed inset-0 flex" style={{ backgroundColor: 'var(--color-background)' }}>

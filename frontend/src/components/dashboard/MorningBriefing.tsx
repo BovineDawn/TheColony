@@ -14,6 +14,8 @@ import { useLDStore } from '../../stores/ldStore'
 import { departmentColors, departmentLabels } from '../../lib/departments'
 import { getModelLabel } from '../../lib/models'
 import { ReportModal } from '../ld/ReportModal'
+import { MdRenderer } from '../ld/MdRenderer'
+import { useMissionHistoryStore } from '../../stores/missionHistoryStore'
 import { connectSocket, api } from '../../lib/api'
 import type { Department } from '../../types/agent'
 
@@ -81,11 +83,13 @@ export function MorningBriefing() {
   const { setActiveView }            = useUIStore()
   const { hiringRecs, strikes, trainingSessions } = useHRStore()
   const { events: activityEvents }   = useActivityStore()
+  const { missions: completedMissions } = useMissionHistoryStore()
   const ldStore = useLDStore()
   const [backendOnline, setBackendOnline] = useState(false)
   const [expandedDept, setExpandedDept] = useState<string | null>(null)
   const [recentReports, setRecentReports] = useState<any[]>([])
   const [openReport, setOpenReport] = useState<{ filename: string; title: string } | null>(null)
+  const [openMission, setOpenMission] = useState<string | null>(null)   // missionId
   const clock = useClock()
 
   useEffect(() => {
@@ -693,13 +697,22 @@ export function MorningBriefing() {
               {activityEvents.slice(0, 8).map((ev, i) => {
                 const Icon  = ACTIVITY_ICONS[ev.type] || Activity
                 const color = ACTIVITY_COLORS[ev.type] || 'var(--color-text-muted)'
+                const isClickable = ev.type === 'mission_complete' && !!ev.missionId
                 return (
-                  <div key={ev.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '9px 14px',
-                    borderBottom: i < Math.min(activityEvents.length, 8) - 1
-                      ? '1px solid var(--color-border)' : 'none',
-                  }}>
+                  <div
+                    key={ev.id}
+                    onClick={isClickable ? () => setOpenMission(ev.missionId!) : undefined}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '9px 14px',
+                      borderBottom: i < Math.min(activityEvents.length, 8) - 1
+                        ? '1px solid var(--color-border)' : 'none',
+                      cursor: isClickable ? 'pointer' : 'default',
+                      transition: 'background 0.12s',
+                    }}
+                    onMouseEnter={isClickable ? e => (e.currentTarget.style.backgroundColor = 'hsl(222 30% 10%)') : undefined}
+                    onMouseLeave={isClickable ? e => (e.currentTarget.style.backgroundColor = 'transparent') : undefined}
+                  >
                     <div style={{
                       width: 4, height: 4, borderRadius: '50%', flexShrink: 0,
                       backgroundColor: color,
@@ -712,6 +725,9 @@ export function MorningBriefing() {
                     }}>
                       {ev.message}
                     </span>
+                    {isClickable && (
+                      <ChevronRight size={9} style={{ color: 'var(--color-text-dim)', flexShrink: 0, opacity: 0.5 }} />
+                    )}
                     <span style={{
                       fontFamily: 'var(--font-mono)', fontSize: '8px',
                       color: 'var(--color-text-dim)', flexShrink: 0,
@@ -901,7 +917,7 @@ export function MorningBriefing() {
                           WebkitBoxOrient: 'vertical',
                           overflow: 'hidden',
                         } as React.CSSProperties}>
-                          {ldStore.lastSummary}
+                          {ldStore.lastSummary.replace(/\*\*/g, '').replace(/\*/g, '').replace(/^#+\s*/gm, '').replace(/__/g, '')}
                         </p>
                       )}
                     </>
@@ -1061,6 +1077,135 @@ export function MorningBriefing() {
 
         </div>
       </div>
+
+      {/* ── Mission Detail Modal ── */}
+      {openMission && (() => {
+        const mission = completedMissions.find(m => m.id === openMission)
+        if (!mission) return null
+        const founderMsg = mission.messages.find(m => m.role === 'founder')
+        return (
+          <AnimatePresence>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setOpenMission(null)}
+              style={{
+                position: 'fixed', inset: 0, zIndex: 200,
+                backgroundColor: 'hsl(215 22% 4% / 0.85)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '24px',
+              }}
+            >
+              <motion.div
+                initial={{ opacity: 0, y: 16, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 16 }}
+                transition={{ duration: 0.2 }}
+                onClick={e => e.stopPropagation()}
+                style={{
+                  width: '100%', maxWidth: 720, maxHeight: '85vh',
+                  display: 'flex', flexDirection: 'column',
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 8,
+                  boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+                }}
+              >
+                {/* Header */}
+                <div style={{
+                  flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '14px 20px',
+                  borderBottom: '1px solid var(--color-border)',
+                }}>
+                  <div style={{
+                    width: 30, height: 30, borderRadius: 4, flexShrink: 0,
+                    backgroundColor: 'hsl(189 100% 50% / 0.1)',
+                    border: '1px solid hsl(189 100% 50% / 0.25)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <MessageSquare size={13} style={{ color: 'var(--color-primary)' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{
+                      fontFamily: 'var(--font-mono)', fontSize: '9px',
+                      letterSpacing: '0.18em', color: 'var(--color-primary)',
+                      marginBottom: 3,
+                    }}>
+                      MISSION REPORT · {new Date(mission.completedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                    <p style={{
+                      fontFamily: 'var(--font-display)', fontSize: '0.95rem',
+                      fontWeight: 700, color: 'var(--color-text-primary)',
+                      letterSpacing: '0.03em', lineHeight: 1,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {mission.title}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setOpenMission(null)}
+                    style={{
+                      width: 30, height: 30, borderRadius: 4, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      backgroundColor: 'var(--color-surface-raised)',
+                      border: '1px solid var(--color-border)',
+                      color: 'var(--color-text-muted)', cursor: 'pointer',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--color-danger)'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
+                  {/* Original brief */}
+                  {founderMsg && (
+                    <div style={{
+                      padding: '14px 20px',
+                      borderBottom: '1px solid var(--color-border)',
+                      backgroundColor: 'hsl(189 100% 50% / 0.04)',
+                    }}>
+                      <p style={{
+                        fontFamily: 'var(--font-mono)', fontSize: '9px',
+                        letterSpacing: '0.14em', color: 'var(--color-text-dim)',
+                        marginBottom: 6,
+                      }}>
+                        ORIGINAL BRIEF
+                      </p>
+                      <p style={{
+                        fontFamily: 'var(--font-body)', fontSize: '13px',
+                        color: 'var(--color-text-muted)', lineHeight: 1.5,
+                      }}>
+                        {founderMsg.content}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Report content */}
+                  <div style={{ padding: '4px 20px 20px' }}>
+                    {mission.formalReport ? (
+                      <MdRenderer content={mission.formalReport} />
+                    ) : (
+                      <div style={{ padding: '32px 0', textAlign: 'center' }}>
+                        <p style={{
+                          fontFamily: 'var(--font-mono)', fontSize: '11px',
+                          color: 'var(--color-text-dim)', letterSpacing: '0.08em',
+                        }}>
+                          No formal report available for this mission.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          </AnimatePresence>
+        )
+      })()}
     </div>
   )
 }

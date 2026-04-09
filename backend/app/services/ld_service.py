@@ -610,9 +610,9 @@ RECOMMENDATION: [one sentence on what to focus on next cycle]"""
 
         # Final summary
         await asyncio.sleep(0.5)
-        summary_prompt = f"""As {ld_head['name']}, Head of L&D, write a concise cycle report for the Founder (under 80 words).
+        summary_prompt = f"""As {ld_head['name']}, Head of L&D, write a concise cycle summary for the Founder (under 80 words).
 Reviewed {len(colonists)} colonists. Training issued to {len(training_plans)} ({', '.join([p['agent'] for p in training_plans]) or 'none'}). Skill updates applied to {len(skill_updates)} agents.
-Be direct and professional."""
+Plain prose only — no markdown, no bullet points, no asterisks, no headers. Just clean sentences."""
         try:
             sum_resp = await call_agent(ld_head, [{"role": "user", "content": summary_prompt}])
             summary = sum_resp.choices[0].message.content or "Cycle complete."

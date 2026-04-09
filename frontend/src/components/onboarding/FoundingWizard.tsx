@@ -31,7 +31,7 @@ export function FoundingWizard({ onComplete }: FoundingWizardProps) {
       role: 'Founder & CEO',
       tier: 'founder',
       department: 'executive',
-      model: 'claude-3-5-sonnet',
+      model: 'gpt-4o',
       personalityNote: 'The visionary and architect of The Colony.',
       skills: [
         { name: 'Leadership', level: 'expert' },

@@ -10,10 +10,10 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }).then(r => r.json()),
-  patch: (path: string, body: unknown) => fetch(`${API_BASE}${path}`, {
+  patch: (path: string, body?: unknown) => fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   }).then(r => r.json()),
 }
 

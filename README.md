@@ -25,15 +25,6 @@ Build a company of autonomous AI agents organized in a military-style hierarchy.
 
 ---
 
-<!-- 
-  📹 DEMO GIF — record a ~30s capture and drop it here.
-  Suggested flow: colony map with breathing tiles → dispatch a mission →
-  watch the executive stream a response token-by-token → audit drawer filling →
-  final formal report lands → L&D overlay runs.
-  Tools: Kap (mac), ScreenToGif (win), or `ffmpeg` to compress.
-  Replace this comment block with:
-  <img src="docs/screenshots/demo.gif" alt="The Colony Demo" width="100%"/>
--->
 
 ## What Is This?
 
@@ -88,12 +79,24 @@ Think: **Rimworld meets a real AI agent framework**.
 - Shows skills, strike history, commendations, org structure, psychological profile
 - Grain texture overlay, amber/tan accent, everything uppercase — straight from the reference
 
-### 🎯 Mission Control
-- **Chat mode**: conversational dispatch straight to your Sr. Executive
-- **Formal Brief mode**: structured mission with title, priority, and deadline
-- **Live streaming** — executive responses appear token-by-token with a blinking cursor
-- Live audit drawer showing every internal agent-to-agent message
-- Full mission history — every transcript is persisted and browsable
+### 🎯 Mission Control — Slack-Style Command Channel
+- **Slack-style message feed** — consecutive messages from the same agent are grouped, avatars only appear on the first message
+- **Tier-colored avatars** — executive, manager, worker each have distinct colors at a glance
+- **Live streaming** — executive and manager responses appear token-by-token with a blinking cursor
+- **Formal Report Cards** — final compiled reports render as expandable cards with full markdown, not raw text
+- Delegation notes show exactly which task each manager was assigned
+- **New Mission button** — instantly clears the channel and starts fresh
+- Full mission history — every transcript is persisted and browsable in the Founder Inbox
+
+### 📬 Founder Inbox — Mission Reports
+- Every completed mission generates a **Mission Report** stored in the Founder Inbox
+- Reports render with full markdown formatting — headers, bullets, code blocks
+- Expandable cards: preview and full report side by side
+
+### 📊 Dashboard — Clickable Activity Feed
+- Mission complete events in the Colony Activity feed are **clickable**
+- Click any mission event → modal overlay showing the original brief + full formatted report
+- Morning Briefing L&D summary strips markdown for clean readability
 
 ### 🤝 Autonomous L&D Autopilot
 - The L&D head agent **runs every 24 hours automatically** (or on server start if overdue)
@@ -102,6 +105,13 @@ Think: **Rimworld meets a real AI agent framework**.
 - Parses and applies skill upgrades directly to agent records in the database
 - Live activity overlay on the Colony Map shows exactly what L&D is doing in real time
 - Trigger manually any time from the Dashboard or Colony Map
+
+### 🎓 Train with NOVA — Direct L&D Chat
+- Click any colonist tile → open their ID Dossier → **Train with NOVA** section
+- Send training resources, feedback, links, or directives directly to your L&D head
+- NOVA generates a concrete training plan targeting that specific colonist
+- Training directives are **persisted to the agent's memory** — they carry forward into every future mission
+- Per-agent training logs saved as markdown files in `docs/ld-reports/training/`
 
 ### ⚖️ Strike & Reward System
 - Issue strikes with a reason — auto-escalates at 3 strikes to Founder inbox
@@ -253,10 +263,13 @@ You (Founder)
         └─► Sr. Executive (compiles final report → returns to Founder)
 ```
 
-Every step is logged in the **Audit Drawer** in Mission Control. Each agent's response is:
+The executive parses which departments are genuinely needed and only dispatches to those — no busy work. Each department manager receives their specific deliverable as a direct task, not a general brief.
+
+Every step streams live in Mission Control. Each agent's response is:
 - **Scored 0–100** for quality (auto-flagged if below 50)
 - **Memory-compressed** and stored so agents remember past missions
 - **Persisted** to SQLite for mission history
+- The final compiled report lands in **Founder Inbox** as a formatted mission report card
 
 ---
 
@@ -296,13 +309,15 @@ The Colony uses a custom **retro-futuristic authority aesthetic** inspired by Ri
 ## Roadmap
 
 - [ ] **Real-time agent-to-agent chat** — watch your agents talk to each other live
-- [ ] **Agent personality evolution** — traits shift based on performance over time  
+- [ ] **Agent personality evolution** — traits shift based on performance over time
 - [ ] **Multi-colony support** — manage multiple independent colonies
 - [ ] **Public colony snapshots** — shareable read-only colony views
 - [ ] **Export reports as PDF** — generate formal colony status documents
 - [ ] **Agent mood system** — color tint on tiles reflects strike count / morale
 - [ ] **Custom department creation** — founders can add new departments beyond the defaults
 - [ ] **Webhooks** — trigger external systems when missions complete
+- [ ] **Mission templates** — save and reuse common mission briefs
+- [ ] **Agent-to-agent direct messaging** — sidebar DMs between colonists
 
 ---
 
@@ -322,7 +337,7 @@ MIT — build your own colony, run your own agents.
 
 <div align="center">
 
-**Built with Claude 3.5 Sonnet · GPT-4o · Gemini 1.5 Pro · Pixi.js · FastAPI · React**
+**Built with Claude · GPT-4o · Gemini · Pixi.js · FastAPI · React · Socket.IO**
 
 *"Survival is our only law." — The Colony, EST. 5500*
 

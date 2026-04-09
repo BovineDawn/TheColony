@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { useState, useEffect } from 'react'
-import { X, Award, ShieldAlert, Star, GraduationCap, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { X, Award, ShieldAlert, Star, GraduationCap, ChevronRight, Send, Loader2 } from 'lucide-react'
 import { StrikeModal } from '../hr/StrikeModal'
 import { RewardModal } from '../hr/RewardModal'
 import { ReportModal } from '../ld/ReportModal'
@@ -8,7 +8,7 @@ import { useColonyStore } from '../../stores/colonyStore'
 import { useUIStore } from '../../stores/uiStore'
 import { departmentColors, departmentLabels } from '../../lib/departments'
 import { getModelLabel } from '../../lib/models'
-import { api } from '../../lib/api'
+import { api, connectSocket } from '../../lib/api'
 import type { Agent } from '../../types/agent'
 
 // ── Procedural barcode from a seed string ──
@@ -145,12 +145,16 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export function AgentProfilePanel() {
-  const { agents } = useColonyStore()
+  const { agents, colony } = useColonyStore()
   const { activePanel, selectedAgentId, setActivePanel, setSelectedAgent } = useUIStore()
   const [showStrike, setShowStrike] = useState(false)
   const [showReward, setShowReward] = useState(false)
   const [ldHistory, setLdHistory] = useState<{ cycle_entries: any[], onboarding: any | null } | null>(null)
   const [openReport, setOpenReport] = useState<{ filename: string; isOnboarding: boolean; title: string } | null>(null)
+  const [ldInput, setLdInput] = useState('')
+  const [ldLoading, setLdLoading] = useState(false)
+  const [ldMessages, setLdMessages] = useState<{ role: 'founder' | 'nova'; content: string }[]>([])
+  const ldChatRef = useRef<HTMLDivElement>(null)
 
   const agent = agents.find(a => a.id === selectedAgentId)
   const isOpen = activePanel === 'agent-profile' && !!agent
@@ -162,6 +166,32 @@ export function AgentProfilePanel() {
       .then((data: any) => setLdHistory(data))
       .catch(() => {/* backend offline */})
   }, [agent?.id, isOpen])
+
+  // Reset L&D chat when agent changes
+  useEffect(() => { setLdMessages([]); setLdInput('') }, [agent?.id])
+
+  // Scroll L&D chat to bottom when new messages arrive
+  useEffect(() => {
+    if (ldChatRef.current) ldChatRef.current.scrollTop = ldChatRef.current.scrollHeight
+  }, [ldMessages])
+
+  const sendLdMessage = () => {
+    if (!ldInput.trim() || ldLoading || !agent) return
+    const msg = ldInput.trim()
+    setLdInput('')
+    setLdMessages(prev => [...prev, { role: 'founder', content: msg }])
+    setLdLoading(true)
+    const socket = connectSocket()
+    socket.emit('ld_direct', { message: msg, target_agent: agent.name })
+    const handler = (ev: any) => {
+      if (ev.type === 'ld_direct_response') {
+        setLdMessages(prev => [...prev, { role: 'nova', content: ev.content }])
+        setLdLoading(false)
+        socket.off('colony_event', handler)
+      }
+    }
+    socket.on('colony_event', handler)
+  }
 
   const manager = agent?.managerId ? agents.find(a => a.id === agent.managerId) : null
   const reports = agent ? agents.filter(a => a.managerId === agent.id) : []
@@ -251,7 +281,7 @@ export function AgentProfilePanel() {
                         color: 'var(--color-amber)',
                         textShadow: '0 0 20px hsl(42 65% 52% / 0.3)',
                       }}>
-                        THE COLONY
+                        {(colony?.name || 'THE COLONY').toUpperCase()}
                       </p>
                       <p style={{
                         fontFamily: 'var(--font-mono)', fontSize: '8px',
@@ -619,6 +649,141 @@ export function AgentProfilePanel() {
                             <ChevronRight size={11} style={{ color: 'var(--color-text-dim)', flexShrink: 0 }} />
                           </button>
                         ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── L&D Direct Chat with NOVA ── */}
+                  {!agent!.isFounder && (
+                    <div style={{
+                      position: 'relative', zIndex: 2,
+                      borderBottom: '1px solid var(--color-border)',
+                    }}>
+                      {/* Section header */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '10px 16px 8px',
+                      }}>
+                        <GraduationCap size={11} style={{ color: 'hsl(262 80% 64%)', flexShrink: 0 }} />
+                        <p style={{
+                          fontFamily: 'var(--font-mono)', fontSize: '8px',
+                          letterSpacing: '0.18em', color: 'hsl(262 80% 64%)',
+                          flex: 1,
+                        }}>
+                          TRAIN WITH NOVA
+                        </p>
+                        {ldMessages.length > 0 && (
+                          <span style={{
+                            fontFamily: 'var(--font-mono)', fontSize: '8px',
+                            color: 'var(--color-text-dim)', opacity: 0.5,
+                          }}>
+                            saved to memory
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Chat transcript */}
+                      {ldMessages.length > 0 && (
+                        <div
+                          ref={ldChatRef}
+                          style={{
+                            maxHeight: 320, overflowY: 'auto',
+                            display: 'flex', flexDirection: 'column',
+                            borderTop: '1px solid var(--color-border)',
+                          }}
+                        >
+                          {ldMessages.map((m, i) => {
+                            const isFounder = m.role === 'founder'
+                            // Strip markdown asterisks/hashes from NOVA's responses
+                            const clean = m.content
+                              .replace(/\*\*/g, '')
+                              .replace(/\*/g, '')
+                              .replace(/^#+\s+/gm, '')
+                              .replace(/^(\d+)\.\s+/gm, '$1. ')
+                              .trim()
+                            return (
+                              <div key={i} style={{
+                                padding: '12px 16px',
+                                borderBottom: i < ldMessages.length - 1 ? '1px solid var(--color-border)' : 'none',
+                                backgroundColor: isFounder ? 'hsl(189 100% 50% / 0.04)' : 'transparent',
+                              }}>
+                                <p style={{
+                                  fontFamily: 'var(--font-mono)', fontSize: '9px',
+                                  letterSpacing: '0.12em',
+                                  color: isFounder ? 'var(--color-primary)' : 'hsl(262 80% 64%)',
+                                  marginBottom: 6, fontWeight: 700,
+                                }}>
+                                  {isFounder ? 'FOUNDER' : 'NOVA'}
+                                </p>
+                                <p style={{
+                                  fontFamily: 'var(--font-body)', fontSize: '13px',
+                                  color: isFounder ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
+                                  lineHeight: 1.6,
+                                  whiteSpace: 'pre-wrap',
+                                }}>
+                                  {clean}
+                                </p>
+                              </div>
+                            )
+                          })}
+                          {ldLoading && (
+                            <div style={{
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              padding: '12px 16px',
+                              borderTop: '1px solid var(--color-border)',
+                            }}>
+                              <Loader2 size={12} style={{ color: 'hsl(262 80% 64%)', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-text-dim)' }}>
+                                NOVA is writing her training plan…
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Input row */}
+                      <div style={{
+                        display: 'flex', gap: 8, alignItems: 'flex-end',
+                        padding: '10px 16px',
+                        borderTop: ldMessages.length > 0 ? '1px solid var(--color-border)' : 'none',
+                      }}>
+                        <textarea
+                          value={ldInput}
+                          onChange={e => setLdInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault()
+                              sendLdMessage()
+                            }
+                          }}
+                          placeholder={`Direct NOVA to train ${agent!.name}… paste links, describe focus areas`}
+                          rows={2}
+                          style={{
+                            flex: 1, padding: '8px 12px', borderRadius: 6,
+                            backgroundColor: 'var(--color-surface-raised)',
+                            border: '1px solid var(--color-border)',
+                            color: 'var(--color-text-primary)',
+                            fontFamily: 'var(--font-body)', fontSize: '13px',
+                            resize: 'none', outline: 'none', lineHeight: 1.5,
+                          }}
+                          onFocus={e => (e.currentTarget.style.borderColor = 'hsl(262 80% 64% / 0.5)')}
+                          onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border)')}
+                        />
+                        <button
+                          onClick={sendLdMessage}
+                          disabled={!ldInput.trim() || ldLoading}
+                          style={{
+                            width: 34, height: 34, borderRadius: 6, flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            backgroundColor: ldInput.trim() && !ldLoading ? 'hsl(262 80% 64% / 0.15)' : 'transparent',
+                            border: `1px solid ${ldInput.trim() && !ldLoading ? 'hsl(262 80% 64% / 0.4)' : 'var(--color-border)'}`,
+                            color: ldInput.trim() && !ldLoading ? 'hsl(262 80% 64%)' : 'var(--color-text-dim)',
+                            cursor: ldInput.trim() && !ldLoading ? 'pointer' : 'not-allowed',
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <Send size={13} />
+                        </button>
                       </div>
                     </div>
                   )}

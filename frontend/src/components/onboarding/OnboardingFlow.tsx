@@ -23,7 +23,7 @@ const FOUNDING_CANDIDATES: FoundingCandidate[] = [
     name: 'ARIA',
     role: 'Sr. Executive',
     department: 'executive',
-    model: 'claude-3-5-sonnet',
+    model: 'gpt-4o',
     personalityNote: 'Decisive, articulate, and deeply loyal to the Founder\'s vision. Runs the company with precision.',
     skills: [
       { name: 'Executive Management', level: 'expert' },
@@ -55,7 +55,7 @@ const FOUNDING_CANDIDATES: FoundingCandidate[] = [
     name: 'LYRA',
     role: 'Head of Research',
     department: 'research',
-    model: 'claude-3-5-sonnet',
+    model: 'gpt-4o',
     personalityNote: 'Insatiably curious. Synthesizes information at an extraordinary rate and surfaces insights others miss.',
     skills: [
       { name: 'Deep Research', level: 'expert' },
@@ -71,7 +71,7 @@ const FOUNDING_CANDIDATES: FoundingCandidate[] = [
     name: 'VERSE',
     role: 'Head of Writing',
     department: 'writing',
-    model: 'gemini-1.5-pro',
+    model: 'gpt-4o',
     personalityNote: 'Eloquent, precise, and gifted at finding the exact words that make ideas land.',
     skills: [
       { name: 'Content Strategy', level: 'expert' },
@@ -103,7 +103,7 @@ const FOUNDING_CANDIDATES: FoundingCandidate[] = [
     name: 'NOVA',
     role: 'Head of L&D',
     department: 'ld',
-    model: 'claude-3-5-sonnet',
+    model: 'gpt-4o',
     personalityNote: 'Relentlessly optimistic about growth. Believes every agent can improve, and has the patience to prove it.',
     skills: [
       { name: 'Training Design', level: 'expert' },

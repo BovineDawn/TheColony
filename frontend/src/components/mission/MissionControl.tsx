@@ -11,6 +11,7 @@ import { useActivityStore } from '../../stores/activityStore'
 import { connectSocket, api } from '../../lib/api'
 import { getModelLabel } from '../../lib/models'
 import { playDemo, DEMO_PROMPT, DEMO_TITLE } from '../../lib/demoPlayback'
+import { MdRenderer } from '../ld/MdRenderer'
 import type { Socket } from 'socket.io-client'
 
 type Mode = 'chat' | 'formal'
@@ -45,6 +46,7 @@ interface DisplayMessage {
   isInternal?: boolean
   missionTitle?: string
   streaming?: boolean
+  agentTier?: string   // 'executive' | 'manager' | 'worker' | 'founder'
 }
 
 interface FeedEntry {
@@ -191,6 +193,7 @@ export function MissionControl() {
     }
 
     if (event.type === 'agent_stream_start') {
+      const agentTier = agents.find(a => a.name === event.from_name)?.tier || 'manager'
       setMessages(prev => [...prev, {
         id: event.stream_id!,
         role: 'executive',
@@ -200,6 +203,7 @@ export function MissionControl() {
         timestamp: event.timestamp,
         isFormal: event.msg_type === 'formal_report',
         streaming: true,
+        agentTier,
       }])
     }
 
@@ -218,6 +222,7 @@ export function MissionControl() {
     }
 
     if (event.type === 'agent_message') {
+      const agentTier = agents.find(a => a.name === event.from_name)?.tier || 'manager'
       setMessages(prev => [...prev, {
         id: `${Date.now()}-${Math.random()}`,
         role: 'executive',
@@ -229,6 +234,7 @@ export function MissionControl() {
         isFormal: event.msg_type === 'formal_report',
         isInternal: event.msg_type === 'internal',
         missionTitle: event.mission_title,
+        agentTier,
       }])
     }
 
@@ -268,13 +274,17 @@ export function MissionControl() {
           timestamp: event.timestamp,
         }]
         const mTitle = currentMissionTitleRef.current || 'Untitled Mission'
+        // Extract the final formal report content (last isFormal message)
+        const formalMsg = [...finalMessages].reverse().find((m: any) => m.isFormal && m.role === 'executive')
+        const newMissionId = `mission-${Date.now()}`
         saveMission({
-          id: `mission-${Date.now()}`,
+          id: newMissionId,
           title: mTitle,
           completedAt: new Date().toISOString(),
+          formalReport: formalMsg?.content,
           messages: finalMessages,
         })
-        addEvent({ type: 'mission_complete', message: `Mission complete: ${mTitle}` })
+        addEvent({ type: 'mission_complete', message: `Mission complete: ${mTitle}`, missionId: newMissionId })
         return finalMessages
       })
     }
@@ -348,7 +358,7 @@ export function MissionControl() {
     setCurrentMissionTitle(title)
     setFeedEntries([])
 
-    setMessages([{
+    const founderMsg: DisplayMessage = {
       id: `f-${Date.now()}`,
       role: 'founder',
       content: input.trim(),
@@ -357,7 +367,10 @@ export function MissionControl() {
       timestamp: new Date().toISOString(),
       isFormal: mode === 'formal',
       missionTitle: mode === 'formal' ? title : undefined,
-    }])
+      agentTier: 'founder',
+    }
+    // Append the founder message rather than resetting — keeps conversation history
+    setMessages(prev => [...prev, founderMsg])
 
     setIsRunning(true)
     socket.emit('send_mission', {
@@ -374,6 +387,20 @@ export function MissionControl() {
 
   const handleStop = () => {
     socketRef.current?.emit('cancel_missions', {})
+  }
+
+  const handleNewMission = () => {
+    if (isRunning) return
+    setMessages([])
+    setFeedEntries([])
+    setAuditEvents([])
+    setActiveAgents(new Set())
+    setElapsedSeconds(0)
+    setActiveSession(null)
+    setCurrentMissionTitle('')
+    setInput('')
+    setFormalTitle('')
+    setShowHistory(false)
   }
 
   const handleRunDemo = useCallback(() => {
@@ -507,6 +534,30 @@ export function MissionControl() {
             }}>
             <History size={10} /> History
           </button>
+
+          {!isRunning && messages.length > 0 && (
+            <button
+              onClick={handleNewMission}
+              title="Clear conversation and start fresh"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-mono text-xs transition-all"
+              style={{
+                backgroundColor: 'transparent',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-text-muted)',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.backgroundColor = 'hsl(222 30% 12%)'
+                e.currentTarget.style.color = 'var(--color-text-primary)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.backgroundColor = 'transparent'
+                e.currentTarget.style.color = 'var(--color-text-muted)'
+              }}
+            >
+              + New
+            </button>
+          )}
 
           {isRunning && (
             <button
@@ -698,27 +749,30 @@ export function MissionControl() {
                         {new Date(hm.completedAt).toLocaleDateString()}
                       </span>
                     </div>
-                    {hm.messages.map(msg => (
-                      <div key={msg.id} className={`flex ${msg.role === 'founder' ? 'justify-end' : 'justify-start'}`}>
-                        {msg.role === 'system' ? (
-                          <span className="font-mono text-xs px-3 py-1.5 rounded-full"
-                            style={{ color: 'var(--color-text-muted)', backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                            {msg.content}
-                          </span>
-                        ) : (
-                          <div className="max-w-lg px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
-                            style={{
-                              backgroundColor: msg.role === 'founder' ? 'hsl(189 100% 50% / 0.12)' : 'var(--color-surface)',
-                              border: msg.role === 'founder' ? '1px solid hsl(189 100% 50% / 0.3)' : '1px solid var(--color-border)',
-                              color: 'var(--color-text-primary)',
-                              borderRadius: msg.role === 'founder' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                              fontFamily: 'var(--font-body)',
-                            }}>
-                            {msg.content}
+                    {hm.messages.map((msg: any, idx: number) => {
+                      if (msg.role === 'system') {
+                        return (
+                          <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+                            <div style={{ flex: 1, height: 1, backgroundColor: 'var(--color-border)' }} />
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                              {msg.content}
+                            </span>
+                            <div style={{ flex: 1, height: 1, backgroundColor: 'var(--color-border)' }} />
                           </div>
-                        )}
-                      </div>
-                    ))}
+                        )
+                      }
+                      if (msg.isInternal) return null
+                      const prev: any = hm.messages[idx - 1]
+                      const compact = !!(prev && !prev.isInternal && prev.role !== 'system' && prev.name === msg.name)
+                      return (
+                        <div key={msg.id} style={{ paddingTop: compact ? 0 : 8 }}>
+                          {msg.isFormal
+                            ? <ReportCard msg={msg} compact={compact} />
+                            : <MessageRow msg={msg} compact={compact} />
+                          }
+                        </div>
+                      )
+                    })}
                   </div>
                 )
               })() : (
@@ -833,52 +887,66 @@ export function MissionControl() {
               )}
 
               <AnimatePresence initial={false}>
-                {messages.map(msg => (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25 }}
-                    className={`flex ${msg.role === 'founder' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    {msg.role === 'system' ? (
-                      <div className="w-full flex justify-center">
-                        <span className="font-mono text-xs px-3 py-1.5 rounded-full"
-                          style={{
-                            color: msg.content.startsWith('✓') ? 'var(--color-success)' : 'var(--color-text-muted)',
-                            backgroundColor: 'var(--color-surface)',
-                            border: '1px solid var(--color-border)',
-                          }}>
+                {messages.map((msg, idx) => {
+                  if (msg.role === 'system') {
+                    return (
+                      <motion.div key={msg.id}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 16px' }}>
+                        <div style={{ flex: 1, height: 1, backgroundColor: 'var(--color-border)' }} />
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: '10px',
+                          color: msg.content.startsWith('✓') ? 'var(--color-success)' : 'var(--color-text-muted)',
+                          whiteSpace: 'nowrap',
+                        }}>
                           {msg.content}
                         </span>
-                      </div>
-                    ) : msg.isInternal ? (
-                      <DelegationBubble msg={msg} />
-                    ) : msg.isFormal ? (
-                      <FormalReportBubble msg={msg} />
-                    ) : (
-                      <ChatBubble msg={msg} />
-                    )}
-                  </motion.div>
-                ))}
+                        <div style={{ flex: 1, height: 1, backgroundColor: 'var(--color-border)' }} />
+                      </motion.div>
+                    )
+                  }
+
+                  if (msg.isInternal) {
+                    return (
+                      <motion.div key={msg.id}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+                        <DelegationNote msg={msg} />
+                      </motion.div>
+                    )
+                  }
+
+                  // Consecutive grouping: same sender within 3 min → compact (no avatar/name)
+                  const prev = messages[idx - 1]
+                  const compact = !!(prev
+                    && !prev.isInternal && prev.role !== 'system'
+                    && prev.name === msg.name
+                    && Math.abs(new Date(msg.timestamp).getTime() - new Date(prev.timestamp).getTime()) < 3 * 60 * 1000
+                  )
+
+                  return (
+                    <motion.div key={msg.id}
+                      initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
+                      style={{ paddingTop: compact ? 0 : 8 }}>
+                      {msg.isFormal
+                        ? <ReportCard msg={msg} compact={compact} />
+                        : <MessageRow msg={msg} compact={compact} />
+                      }
+                    </motion.div>
+                  )
+                })}
               </AnimatePresence>
 
-              {/* Typing indicator — shown when running but no active stream yet */}
+              {/* Typing indicator */}
               {isRunning && !messages.some(m => m.streaming) && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-                  <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl"
-                    style={{
-                      backgroundColor: 'var(--color-surface)',
-                      border: '1px solid var(--color-border)',
-                      borderBottomLeftRadius: 4,
-                    }}>
-                    <Loader2 size={13} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
-                    <span className="font-mono text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                      {liveActiveAgents.length > 0
-                        ? `${liveActiveAgents.map(a => a.name).join(', ')} working…`
-                        : `${executive?.name || 'Executive'} is coordinating…`}
-                    </span>
-                  </div>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="flex items-center gap-3 px-4 py-2">
+                  <div style={{ width: 36, flexShrink: 0 }} />
+                  <Loader2 size={13} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
+                  <span className="font-mono" style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
+                    {liveActiveAgents.length > 0
+                      ? `${liveActiveAgents.map(a => a.name).join(', ')} working…`
+                      : `${executive?.name || 'Executive'} is coordinating…`}
+                  </span>
                 </motion.div>
               )}
 
@@ -991,140 +1059,196 @@ export function MissionControl() {
   )
 }
 
-function ChatBubble({ msg }: { msg: DisplayMessage }) {
-  const isFounder = msg.role === 'founder'
+// ─── Slack-style message components ─────────────────────────────────────────
+
+const TIER_AVATAR_COLOR: Record<string, string> = {
+  founder:   'hsl(42 65% 52%)',
+  executive: 'hsl(189 100% 50%)',
+  manager:   'hsl(262 80% 64%)',
+  worker:    'hsl(142 76% 53%)',
+}
+
+function MsgAvatar({ name, tier }: { name: string; tier?: string }) {
+  const color = TIER_AVATAR_COLOR[tier || 'manager']
+  const initials = name.slice(0, 2).toUpperCase()
   return (
-    <div className="max-w-lg flex flex-col gap-1"
-      style={{ alignItems: isFounder ? 'flex-end' : 'flex-start' }}>
-      {msg.name && (
-        <span className="font-mono px-1"
-          style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-          {msg.name}
-        </span>
-      )}
-      <div
-        className="px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
-        style={{
-          backgroundColor: isFounder ? 'hsl(189 100% 50% / 0.12)' : 'var(--color-surface)',
-          border: isFounder
-            ? '1px solid hsl(189 100% 50% / 0.3)'
-            : '1px solid var(--color-border)',
-          color: 'var(--color-text-primary)',
-          borderRadius: isFounder ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-          fontFamily: 'var(--font-body)',
-        }}>
-        {msg.content}
-        {msg.streaming && (
-          <span className="inline-block w-0.5 h-4 ml-0.5 align-text-bottom animate-pulse"
-            style={{ backgroundColor: 'var(--color-primary)' }} />
-        )}
-      </div>
+    <div style={{
+      width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+      backgroundColor: `${color}18`,
+      border: `1px solid ${color}35`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700,
+      color,
+    }}>
+      {initials}
     </div>
   )
 }
 
-function FormalReportBubble({ msg }: { msg: DisplayMessage }) {
-  const [expanded, setExpanded] = useState(msg.role === 'executive')
-  const isFounder = msg.role === 'founder'
+// Full message row with avatar + name header
+function MessageRow({ msg, compact }: { msg: DisplayMessage; compact: boolean }) {
+  const tier  = msg.agentTier || (msg.role === 'founder' ? 'founder' : 'manager')
+  const color = TIER_AVATAR_COLOR[tier]
+  const time  = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
   return (
-    <div className="w-full max-w-2xl flex flex-col gap-1"
-      style={{ alignItems: isFounder ? 'flex-end' : 'flex-start' }}>
-      {msg.name && (
-        <span className="font-mono px-1"
-          style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-          {msg.name}
-        </span>
+    <div
+      className="group flex gap-3 px-4 py-0.5 rounded"
+      style={{ transition: 'background 0.1s' }}
+      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'hsl(222 30% 10%)')}
+      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+    >
+      {compact ? (
+        <div style={{ width: 36, flexShrink: 0 }} />
+      ) : (
+        <MsgAvatar name={msg.name || '??'} tier={tier} />
       )}
-      <div className="w-full rounded-xl overflow-hidden"
-        style={{
-          backgroundColor: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-        }}>
-        <button
-          onClick={() => setExpanded(v => !v)}
-          className="w-full flex items-center gap-3 px-4 py-3 transition-colors text-left"
-          style={{
-            borderBottom: expanded ? '1px solid var(--color-border)' : 'none',
-            cursor: 'pointer',
-          }}
-          onMouseEnter={e => e.currentTarget.style.backgroundColor = 'hsl(222 30% 13%)'}
-          onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-        >
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-            style={{ backgroundColor: 'hsl(262 80% 64% / 0.12)', border: '1px solid hsl(262 80% 64% / 0.25)' }}>
-            <FileText size={13} style={{ color: 'var(--color-secondary)' }} />
-          </div>
-          <span className="font-heading text-sm flex-1"
-            style={{ color: 'var(--color-text-primary)' }}>
-            {msg.missionTitle ? `Report: ${msg.missionTitle}` : 'Formal Report'}
-          </span>
-          {expanded
-            ? <ChevronUp size={14} style={{ color: 'var(--color-text-muted)' }} />
-            : <ChevronDown size={14} style={{ color: 'var(--color-text-muted)' }} />
-          }
-        </button>
-        {expanded && (
-          <div className="px-5 py-4 text-sm leading-relaxed whitespace-pre-wrap overflow-y-auto"
-            style={{
-              color: 'var(--color-text-primary)',
-              fontFamily: 'var(--font-body)',
-              maxHeight: '420px',
-            }}>
-            {msg.content}
-            {msg.streaming && (
-              <span className="inline-block w-0.5 h-4 ml-0.5 align-text-bottom animate-pulse"
-                style={{ backgroundColor: 'var(--color-primary)' }} />
-            )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {!compact && (
+          <div className="flex items-baseline gap-2 mb-0.5">
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 700, color }}>
+              {msg.name}
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-text-dim)' }}>
+              {time}
+            </span>
           </div>
         )}
-      </div>
-    </div>
-  )
-}
-
-function DelegationBubble({ msg }: { msg: DisplayMessage }) {
-  const [expanded, setExpanded] = useState(false)
-  const isLong = msg.content.length > 120
-
-  return (
-    <div className="flex justify-start w-full">
-      <div style={{
-        borderLeft: '2px solid hsl(262 80% 64% / 0.4)',
-        paddingLeft: '12px',
-        maxWidth: '520px',
-        minWidth: '200px',
-      }}>
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="font-mono"
-            style={{ fontSize: '9px', color: 'hsl(262 80% 64%)', letterSpacing: '0.08em' }}>
-            {msg.name}
-            {msg.toName && (
-              <span style={{ color: 'var(--color-text-dim)' }}> → {msg.toName}</span>
-            )}
-          </span>
-          <span className="font-mono"
-            style={{ fontSize: '8px', color: 'var(--color-text-dim)', letterSpacing: '0.14em', opacity: 0.6 }}>
-            INTERNAL
-          </span>
+        <div style={{
+          fontFamily: 'var(--font-body)', fontSize: '14px',
+          color: 'var(--color-text-primary)', lineHeight: 1.55,
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        }}>
+          {msg.content}
+          {msg.streaming && (
+            <span className="inline-block w-0.5 h-4 ml-0.5 align-text-bottom animate-pulse"
+              style={{ backgroundColor: 'var(--color-primary)' }} />
+          )}
         </div>
-        <p className="leading-relaxed"
-          style={{
-            fontFamily: 'var(--font-body)', fontSize: '12px',
-            color: 'var(--color-text-muted)',
-            display: isLong && !expanded ? '-webkit-box' : 'block',
-            WebkitLineClamp: isLong && !expanded ? 2 : undefined,
-            WebkitBoxOrient: isLong && !expanded ? 'vertical' : undefined,
-            overflow: isLong && !expanded ? 'hidden' : 'visible',
-          } as React.CSSProperties}>
+      </div>
+    </div>
+  )
+}
+
+// Report card — expandable, rendered with MdRenderer
+function ReportCard({ msg, compact }: { msg: DisplayMessage; compact: boolean }) {
+  const [expanded, setExpanded] = useState(true)
+  const tier  = msg.agentTier || 'executive'
+  const color = TIER_AVATAR_COLOR[tier]
+  const time  = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div
+      className="group flex gap-3 px-4 py-1 rounded"
+      style={{ transition: 'background 0.1s' }}
+      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'hsl(222 30% 10%)')}
+      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+    >
+      {compact ? (
+        <div style={{ width: 36, flexShrink: 0 }} />
+      ) : (
+        <MsgAvatar name={msg.name || '??'} tier={tier} />
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {!compact && (
+          <div className="flex items-baseline gap-2 mb-1.5">
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 700, color }}>
+              {msg.name}
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-text-dim)' }}>
+              {time}
+            </span>
+          </div>
+        )}
+        <div style={{
+          border: '1px solid var(--color-border)',
+          borderRadius: 8, overflow: 'hidden',
+          backgroundColor: 'var(--color-surface)',
+        }}>
+          <button
+            onClick={() => setExpanded(v => !v)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 14px', cursor: 'pointer',
+              borderBottom: expanded ? '1px solid var(--color-border)' : 'none',
+              backgroundColor: 'transparent', border: 'none',
+              transition: 'background 0.1s', textAlign: 'left',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'hsl(222 30% 12%)')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <div style={{
+              width: 26, height: 26, borderRadius: 6, flexShrink: 0,
+              backgroundColor: 'hsl(262 80% 64% / 0.12)',
+              border: '1px solid hsl(262 80% 64% / 0.25)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <FileText size={12} style={{ color: 'hsl(262 80% 64%)' }} />
+            </div>
+            <span style={{
+              fontFamily: 'var(--font-display)', fontSize: '13px', fontWeight: 600,
+              color: 'var(--color-text-primary)', flex: 1,
+            }}>
+              {msg.missionTitle ? `Mission Report — ${msg.missionTitle}` : 'Formal Report'}
+            </span>
+            {expanded
+              ? <ChevronUp size={13} style={{ color: 'var(--color-text-muted)' }} />
+              : <ChevronDown size={13} style={{ color: 'var(--color-text-muted)' }} />
+            }
+          </button>
+          {expanded && (
+            <div style={{ overflowY: 'auto', maxHeight: 500, padding: '2px 16px 16px' }}>
+              {msg.streaming ? (
+                <div style={{
+                  fontFamily: 'var(--font-body)', fontSize: '14px', lineHeight: 1.55,
+                  color: 'var(--color-text-primary)', whiteSpace: 'pre-wrap', paddingTop: 12,
+                }}>
+                  {msg.content}
+                  <span className="inline-block w-0.5 h-4 ml-0.5 align-text-bottom animate-pulse"
+                    style={{ backgroundColor: 'var(--color-primary)' }} />
+                </div>
+              ) : (
+                <MdRenderer content={msg.content} />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Delegation note — compact, indented, no avatar
+function DelegationNote({ msg }: { msg: DisplayMessage }) {
+  const [expanded, setExpanded] = useState(false)
+  const isLong = msg.content.length > 100
+  return (
+    <div style={{ paddingLeft: 52, paddingRight: 16, paddingTop: 2, paddingBottom: 2 }}>
+      <div style={{
+        borderLeft: '2px solid hsl(262 80% 64% / 0.3)',
+        paddingLeft: 10,
+      }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'hsl(262 80% 64%)', opacity: 0.8 }}>
+          {msg.name}{msg.toName ? ` → ${msg.toName}` : ''}
+        </span>
+        {' '}
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--color-text-dim)', opacity: 0.5 }}>
+          internal
+        </span>
+        <p style={{
+          fontFamily: 'var(--font-body)', fontSize: '12px',
+          color: 'var(--color-text-muted)', lineHeight: 1.4, marginTop: 2,
+          overflow: isLong && !expanded ? 'hidden' : 'visible',
+          display: isLong && !expanded ? '-webkit-box' : 'block',
+          WebkitLineClamp: isLong && !expanded ? 2 : undefined,
+          WebkitBoxOrient: isLong && !expanded ? 'vertical' : undefined,
+        } as React.CSSProperties}>
           {msg.content}
         </p>
         {isLong && (
-          <button
-            onClick={() => setExpanded(v => !v)}
-            className="font-mono mt-1"
-            style={{ fontSize: '9px', color: 'hsl(262 80% 64%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.7 }}>
-            {expanded ? '↑ less' : '↓ more'}
+          <button onClick={() => setExpanded(v => !v)}
+            style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'hsl(262 80% 64%)', opacity: 0.6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 2 }}>
+            {expanded ? 'less ↑' : 'more ↓'}
           </button>
         )}
       </div>

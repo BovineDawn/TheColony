@@ -3,6 +3,7 @@ import { useColonyStore } from '../../stores/colonyStore'
 import { useActivityStore } from '../../stores/activityStore'
 import { useMissionHistoryStore } from '../../stores/missionHistoryStore'
 import { Settings, AlertTriangle } from 'lucide-react'
+import { api } from '../../lib/api'
 
 const DEPARTMENTS = ['engineering', 'research', 'writing', 'legal', 'ld', 'executive'] as const
 type Department = typeof DEPARTMENTS[number]
@@ -68,6 +69,13 @@ export function SettingsPanel() {
     const next = { ...modelPrefs, [dept]: model }
     setModelPrefs(next)
     localStorage.setItem(PREF_KEY, JSON.stringify(next))
+
+    // Update all existing agents in this department
+    const deptAgents = agents.filter(a => a.department === dept && !a.isFounder)
+    deptAgents.forEach(agent => {
+      updateAgent(agent.id, { model })
+      api.patch(`/api/agents/${agent.id}`, { model }).catch(() => {/* backend offline */})
+    })
   }
 
   const handleReset = () => {
@@ -220,7 +228,7 @@ export function SettingsPanel() {
             marginBottom: 16,
             letterSpacing: '0.03em',
           }}>
-            These preferences apply to new hires only.
+            Updates all existing agents in each department and sets the default for new hires.
           </p>
 
           <div className="flex flex-col gap-3">
@@ -236,7 +244,7 @@ export function SettingsPanel() {
                   {DEPT_LABELS[dept]}
                 </span>
                 <select
-                  value={modelPrefs[dept] || 'claude-3-5-sonnet'}
+                  value={modelPrefs[dept] || 'gpt-4o'}
                   onChange={e => setModelPref(dept, e.target.value as AIModel)}
                   style={{
                     flex: 1,

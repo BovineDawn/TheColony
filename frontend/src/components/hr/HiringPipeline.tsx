@@ -5,7 +5,7 @@ import { useColonyStore } from '../../stores/colonyStore'
 import { useHRStore } from '../../stores/hrStore'
 import { useActivityStore } from '../../stores/activityStore'
 import { departmentColors, departmentLabels } from '../../lib/departments'
-import { connectSocket } from '../../lib/api'
+import { connectSocket, api } from '../../lib/api'
 import type { AIModel, AgentSkill, Department } from '../../types/agent'
 
 const DEPARTMENTS: Department[] = ['engineering', 'research', 'writing', 'legal', 'ld']
@@ -26,7 +26,7 @@ export function HiringPipeline() {
   const [dept, setDept] = useState<Department>('engineering')
   const [role, setRole] = useState('')
   const [name, setName] = useState('')
-  const [model, setModel] = useState<AIModel>('claude-3-5-sonnet')
+  const [model, setModel] = useState<AIModel>('gpt-4o')
   const [personality, setPersonality] = useState('')
   const [recText, setRecText] = useState('')
   const [skills, setSkills] = useState('')
@@ -61,6 +61,19 @@ export function HiringPipeline() {
     }
 
     addHiringRec(rec)
+
+    // Persist to backend
+    api.post('/api/hr/hiring', {
+      department: rec.department,
+      role: rec.role,
+      name: rec.candidateName,
+      model: rec.model,
+      personality_note: rec.personalityNote,
+      skills: rec.skills,
+      recommended_by: rec.recommendedBy,
+      recommendation_text: rec.recommendationText,
+    }).catch(() => {/* backend offline */})
+
     setShowForm(false)
     setRole(''); setName(''); setPersonality(''); setRecText(''); setSkills('')
   }
@@ -111,6 +124,9 @@ export function HiringPipeline() {
     updateColony({ nextEmployeeId: nextId + 1 })
     updateHiringRec(rec.id, 'approved')
     addEvent({ type: 'agent_hired', message: `${rec.candidateName} joined as ${rec.role}`, agentName: rec.candidateName })
+
+    // Approve in backend DB
+    api.patch(`/api/hr/hiring/${rec.id}/approve`).catch(() => {/* backend offline */})
 
     // Trigger L&D onboarding training for the new hire
     try {

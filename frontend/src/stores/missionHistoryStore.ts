@@ -5,12 +5,14 @@ export interface HistoricalMission {
   id: string
   title: string
   completedAt: string
+  formalReport?: string          // final compiled ARIA report (markdown)
   messages: Array<{
     id: string
     role: 'founder' | 'executive' | 'system'
     content: string
     name?: string
     timestamp: string
+    isFormal?: boolean
   }>
 }
 

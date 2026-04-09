@@ -10,6 +10,7 @@ export interface ActivityEvent {
   type: ActivityEventType
   message: string
   agentName?: string
+  missionId?: string      // links to HistoricalMission.id when type === 'mission_complete'
   timestamp: string
 }
 

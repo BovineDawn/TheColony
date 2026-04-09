@@ -5,6 +5,7 @@ import { useColonyStore } from '../../stores/colonyStore'
 import { useHRStore } from '../../stores/hrStore'
 import { useActivityStore } from '../../stores/activityStore'
 import { departmentColors } from '../../lib/departments'
+import { api } from '../../lib/api'
 import type { Agent } from '../../types/agent'
 
 interface StrikeModalProps {
@@ -83,6 +84,15 @@ export function StrikeModal({ agent, onClose }: StrikeModalProps) {
     }
 
     addEvent({ type: 'strike_issued', message: `Strike issued to ${agent.name}: ${finalReason}`, agentName: agent.name })
+
+    // Persist to backend
+    api.post('/api/hr/strikes', {
+      agent_id: agent.id,
+      reason: finalReason,
+      severity,
+      strike_number: strikeCount,
+      issued_by: 'founder',
+    }).catch(() => {/* backend offline — strike saved locally */})
 
     setSubmitted(true)
     setTimeout(onClose, 1800)

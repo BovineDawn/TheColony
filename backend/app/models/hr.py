@@ -35,7 +35,7 @@ class HiringRecModel(Base):
     department           = Column(String, nullable=False)
     role                 = Column(String, nullable=False)
     candidate_name       = Column(String, nullable=False)
-    model                = Column(String, default="claude-3-5-sonnet")
+    model                = Column(String, default="gpt-4o")
     personality_note     = Column(String, default="")
     skills               = Column(JSON, default=[])
     recommended_by       = Column(String, nullable=False)

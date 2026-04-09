@@ -34,14 +34,16 @@ def _ts() -> str:
 
 
 def _parse_involved_departments(exec_text: str) -> set[str]:
-    plan_match = re.search(r'ACTION PLAN:(.*?)(?:TIMELINE:|$)', exec_text, re.DOTALL | re.IGNORECASE)
+    plan_match = re.search(r'ACTION PLAN:(.*?)(?:TIMELINE:|ESTIMATED|$)', exec_text, re.DOTALL | re.IGNORECASE)
     if not plan_match:
         return set()
     departments: set[str] = set()
     for line in plan_match.group(1).split('\n'):
         line = line.strip()
-        if line.startswith('-') and ':' in line:
-            label = line[1:].split(':', 1)[0].strip().lower()
+        # Accept "- Dept:", "1. Dept:", "* Dept:", "**Dept**:", plain "Dept:"
+        match = re.match(r'^[-*\d.]+\s*\*{0,2}(.+?)\*{0,2}\s*:', line)
+        if match:
+            label = match.group(1).strip().lower()
             if label:
                 departments.add(label)
     return departments
@@ -57,12 +59,17 @@ def _manager_is_involved(manager: dict, involved: set[str]) -> bool:
 
 def _extract_dept_task(exec_text: str, dept: str) -> str:
     """Pull the relevant ACTION PLAN line for a department from the exec response."""
-    for line in exec_text.split('\n'):
+    plan_match = re.search(r'ACTION PLAN:(.*?)(?:TIMELINE:|ESTIMATED|$)', exec_text, re.DOTALL | re.IGNORECASE)
+    section = plan_match.group(1) if plan_match else exec_text
+    dept_lower = dept.lower()
+    for line in section.split('\n'):
         stripped = line.strip()
-        if stripped.startswith('-') and ':' in stripped:
-            label = stripped[1:].split(':', 1)[0].strip().lower()
-            if dept.lower() in label or label in dept.lower():
-                return stripped[1:].split(':', 1)[1].strip()
+        match = re.match(r'^[-*\d.]+\s*\*{0,2}(.+?)\*{0,2}\s*:(.*)', stripped)
+        if match:
+            label = match.group(1).strip().lower()
+            task  = match.group(2).strip()
+            if dept_lower in label or label in dept_lower:
+                return task
     return ''
 
 
@@ -184,28 +191,26 @@ async def _run_manager(
     if cancel.is_set():
         return f"[{manager['name']}] Cancelled", {}
 
-    dept_task_prompt = f"""You have been assigned a sub-task from the Sr. Executive for the following mission:
-
-MISSION: {mission['title']}
-EXECUTIVE PLAN:
-{exec_text}
-
-Your department: {manager['department']}
-Your role: {manager['role']}
-
-Execute the relevant portion of this mission for your department.
-Be specific, thorough, and professional. Return your findings/work product."""
-
-    # Emit a rich delegation message so the frontend can show what each manager is assigned
+    # Extract the specific task ARIA assigned to this department
     task_summary = _extract_dept_task(exec_text, manager.get('department', ''))
+    specific_task = task_summary or f"Execute all {manager.get('department', '').title()} department responsibilities for this mission and produce a concrete deliverable."
+
+    # Emit delegation message so the frontend can show what each manager is assigned
     await on_message({
         "type": "agent_message",
         "from_id": executive["id"], "from_name": executive["name"], "from_role": executive["role"],
         "to_id": manager["id"], "to_name": manager["name"],
-        "content": task_summary or f"Execute all {manager.get('department', '').title()} department tasks for this mission.",
+        "content": specific_task,
         "msg_type": "internal",
         "timestamp": _ts(),
     })
+
+    dept_task_prompt = f"""You are {manager['name']}, {manager['role']}.
+
+MISSION: {mission['title']}
+YOUR TASK: {specific_task}
+
+Deliver the actual work product. If it's a document/letter/plan, write it in full. If it's analysis, be specific and concise (150–250 words max). No preamble, no "I will now...", no restating the task. Just the output."""
 
     await on_message({"type": "status_update", "agent_id": manager["id"], "agent_name": manager["name"], "status": "working", "timestamp": _ts()})
 
@@ -320,25 +325,41 @@ async def _run_mission_inner(
 
     await on_message({"type": "status", "text": f"Mission received. Routing to {executive['name']}...", "timestamp": _ts()})
 
+    # Build department roster for ARIA's awareness
+    managers = [a for a in agents if a.get("tier") == "manager"]
+    dept_roster = "\n".join(
+        f"  - {m.get('department', '').title()} Department — {m['name']} ({m.get('role', '')})"
+        for m in managers
+    )
+
     # Step 1 — Executive plans
-    exec_prompt = f"""A new mission has come in from the Founder.
+    exec_prompt = f"""A new mission has arrived from the Founder.
 
-MISSION: {mission['title']}
-DESCRIPTION: {mission['description']}
-PRIORITY: {mission.get('priority', 'normal')}
+MISSION TITLE: {mission['title']}
+MISSION DESCRIPTION: {mission['description']}
+PRIORITY: {mission.get('priority', 'normal').upper()}
 
-Your job:
-1. Briefly acknowledge the mission
-2. Identify which departments need to be involved and what each should do
-3. Provide a structured action plan
+AVAILABLE DEPARTMENTS:
+{dept_roster}
 
-Format your response as:
+Your responsibilities:
+1. Acknowledge the mission in one sentence
+2. Decide which departments are needed (only those with real work to do)
+3. Assign each a specific, concrete deliverable
+
+Use EXACTLY this format:
+
 ACKNOWLEDGMENT: [one sentence]
-DEPARTMENTS INVOLVED: [list]
+DEPARTMENTS INVOLVED: [comma-separated names]
 ACTION PLAN:
-- [Department]: [specific task]
-- ...
-TIMELINE: [estimated completion]"""
+- [department name]: [specific deliverable]
+- [department name]: [specific deliverable]
+TIMELINE: [estimate]
+
+Rules:
+- Use exact department names: engineering, research, writing, legal, ld
+- One line per department. No elaboration here — save it for the report.
+- Only involve departments that have genuine work to do."""
 
     exec_text = await _stream_exec_message(
         agent=executive,
@@ -352,10 +373,10 @@ TIMELINE: [estimated completion]"""
         await _emit_cancelled(on_message, agents)
         return ""
 
-    # Step 2 — Dispatch managers in parallel
-    managers = [a for a in agents if a.get("tier") == "manager"]
+    # Step 2 — Dispatch managers in parallel (managers list already built above)
     involved_depts = _parse_involved_departments(exec_text)
-    active_managers = [m for m in managers if _manager_is_involved(m, involved_depts)]
+    # If parsing found nothing (ARIA deviated from format), involve all managers
+    active_managers = [m for m in managers if _manager_is_involved(m, involved_depts)] if involved_depts else managers
 
     manager_tasks = [
         _run_manager(m, executive, mission, exec_text, agents, on_message, cancel)
@@ -375,20 +396,30 @@ TIMELINE: [estimated completion]"""
     }
 
     # Step 3 — Executive compiles final report
-    compile_prompt = f"""You have received work product from all relevant departments for this mission:
+    dept_sections = chr(10).join(results)
+    compile_prompt = f"""Compile the final mission report for the Founder.
 
 MISSION: {mission['title']}
+BRIEF: {mission.get('description', '')}
 
-DEPARTMENT OUTPUTS:
-{chr(10).join(results)}
+DEPARTMENT OUTPUT:
+{dept_sections}
 
-Now compile a comprehensive final report for the Founder. Include:
-- Executive Summary (2-3 sentences)
-- Key Findings / Deliverables per department
-- Recommendations
-- Any blockers or items requiring Founder decision
+Write the report. Be tight — no filler.
 
-Format it professionally as a formal report."""
+# {mission['title']}
+
+## Summary
+[2 sentences max: what was done and the result]
+
+## Deliverables
+[CRITICAL: Any document, letter, draft, code, or plan must be reproduced IN FULL — not summarized. Label each section by department.]
+
+## Next Steps
+[3–5 numbered actions for the Founder]
+
+## Decisions Required
+[Specific approvals needed — or "None"]"""
 
     final_text = await _stream_exec_message(
         agent=executive,

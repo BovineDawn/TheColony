@@ -1,12 +1,15 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useColonyStore } from '../../stores/colonyStore'
 import { useHRStore } from '../../stores/hrStore'
 import { useActivityStore } from '../../stores/activityStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useMissionHistoryStore } from '../../stores/missionHistoryStore'
 import {
   AlertTriangle, UserPlus, Award, MessageSquare,
-  GraduationCap, TrendingUp, ChevronRight, Bell
+  GraduationCap, TrendingUp, ChevronRight, Bell,
+  FileText, ChevronDown, ChevronUp, X,
 } from 'lucide-react'
+import { MdRenderer } from '../ld/MdRenderer'
 import type { ActivityEventType } from '../../stores/activityStore'
 
 const EVENT_COLORS: Record<ActivityEventType, string> = {
@@ -34,6 +37,11 @@ export function FounderInbox() {
   const { hiringRecs } = useHRStore()
   const { events } = useActivityStore()
   const { setActiveView, setSelectedAgent, setActivePanel } = useUIStore()
+  const { missions: completedMissions } = useMissionHistoryStore()
+  const [openReportId, setOpenReportId] = useState<string | null>(null)
+
+  // Only missions with a formal report
+  const missionReports = completedMissions.filter(m => m.formalReport)
 
   const pendingHires = hiringRecs.filter(h => h.status === 'pending')
 
@@ -99,7 +107,80 @@ export function FounderInbox() {
           </h1>
         </div>
 
-        {/* SECTION 1: PENDING HIRES */}
+        {/* SECTION 1: MISSION REPORTS */}
+        {missionReports.length > 0 && (
+          <div className="mb-8">
+            {sectionHeader('MISSION REPORTS', missionReports.length)}
+            <div className="flex flex-col gap-2">
+              {missionReports.map(mission => {
+                const isOpen = openReportId === mission.id
+                return (
+                  <div key={mission.id} style={{
+                    backgroundColor: 'var(--color-surface)',
+                    border: `1px solid ${isOpen ? 'hsl(262 80% 64% / 0.35)' : 'var(--color-border)'}`,
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    transition: 'border-color 0.15s',
+                  }}>
+                    {/* Header row */}
+                    <button
+                      onClick={() => setOpenReportId(isOpen ? null : mission.id)}
+                      style={{
+                        width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '14px 16px', cursor: 'pointer',
+                        backgroundColor: 'transparent', border: 'none', textAlign: 'left',
+                        transition: 'background 0.12s',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.backgroundColor = 'hsl(222 30% 10%)'}
+                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                    >
+                      <div style={{
+                        width: 30, height: 30, borderRadius: 6, flexShrink: 0,
+                        backgroundColor: 'hsl(262 80% 64% / 0.1)',
+                        border: '1px solid hsl(262 80% 64% / 0.25)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <FileText size={13} style={{ color: 'hsl(262 80% 64%)' }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{
+                          fontFamily: 'var(--font-display)', fontSize: '14px',
+                          fontWeight: 600, color: 'var(--color-text-primary)',
+                          marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {mission.title}
+                        </p>
+                        <p style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                          {new Date(mission.completedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {' · '}
+                          {new Date(mission.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                      {isOpen
+                        ? <ChevronUp size={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                        : <ChevronDown size={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                      }
+                    </button>
+
+                    {/* Report body */}
+                    {isOpen && (
+                      <div style={{
+                        borderTop: '1px solid var(--color-border)',
+                        padding: '4px 20px 20px',
+                        maxHeight: 540,
+                        overflowY: 'auto',
+                      }}>
+                        <MdRenderer content={mission.formalReport!} />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* SECTION 2: PENDING HIRES */}
         <div className="mb-8">
           {sectionHeader('PENDING HIRES', pendingHires.length)}
           {pendingHires.length === 0 ? (
@@ -164,7 +245,7 @@ export function FounderInbox() {
           )}
         </div>
 
-        {/* SECTION 2: STRIKE ESCALATIONS */}
+        {/* SECTION 3: STRIKE ESCALATIONS */}
         <div className="mb-8">
           {sectionHeader('STRIKE ESCALATIONS', strikeEscalations.length)}
           {strikeEscalations.length === 0 ? (
@@ -236,7 +317,7 @@ export function FounderInbox() {
           )}
         </div>
 
-        {/* SECTION 3: RECENT ACTIVITY */}
+        {/* SECTION 4: RECENT ACTIVITY */}
         <div>
           {sectionHeader('RECENT ACTIVITY')}
           {events.length === 0 ? (
