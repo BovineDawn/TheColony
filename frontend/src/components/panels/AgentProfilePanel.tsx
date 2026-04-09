@@ -1,12 +1,14 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { useState } from 'react'
-import { X, Award, ShieldAlert, Star } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, Award, ShieldAlert, Star, GraduationCap, ChevronRight } from 'lucide-react'
 import { StrikeModal } from '../hr/StrikeModal'
 import { RewardModal } from '../hr/RewardModal'
+import { ReportModal } from '../ld/ReportModal'
 import { useColonyStore } from '../../stores/colonyStore'
 import { useUIStore } from '../../stores/uiStore'
 import { departmentColors, departmentLabels } from '../../lib/departments'
 import { getModelLabel } from '../../lib/models'
+import { api } from '../../lib/api'
 import type { Agent } from '../../types/agent'
 
 // ── Procedural barcode from a seed string ──
@@ -147,9 +149,19 @@ export function AgentProfilePanel() {
   const { activePanel, selectedAgentId, setActivePanel, setSelectedAgent } = useUIStore()
   const [showStrike, setShowStrike] = useState(false)
   const [showReward, setShowReward] = useState(false)
+  const [ldHistory, setLdHistory] = useState<{ cycle_entries: any[], onboarding: any | null } | null>(null)
+  const [openReport, setOpenReport] = useState<{ filename: string; isOnboarding: boolean; title: string } | null>(null)
 
   const agent = agents.find(a => a.id === selectedAgentId)
   const isOpen = activePanel === 'agent-profile' && !!agent
+
+  useEffect(() => {
+    if (!agent || !isOpen) return
+    setLdHistory(null)
+    api.get(`/api/ld/agents/${encodeURIComponent(agent.name)}/history`)
+      .then((data: any) => setLdHistory(data))
+      .catch(() => {/* backend offline */})
+  }, [agent?.id, isOpen])
 
   const manager = agent?.managerId ? agents.find(a => a.id === agent.managerId) : null
   const reports = agent ? agents.filter(a => a.managerId === agent.id) : []
@@ -174,6 +186,7 @@ export function AgentProfilePanel() {
     <>
       {showStrike && agent && <StrikeModal agent={agent} onClose={() => setShowStrike(false)} />}
       {showReward && agent && <RewardModal agent={agent} onClose={() => setShowReward(false)} />}
+      {openReport && <ReportModal filename={openReport.filename} isOnboarding={openReport.isOnboarding} title={openReport.title} onClose={() => setOpenReport(null)} />}
 
       <AnimatePresence>
         {isOpen && agent && (
@@ -525,6 +538,88 @@ export function AgentProfilePanel() {
                         <ShieldAlert size={11} />
                         ISSUE STRIKE
                       </button>
+                    </div>
+                  )}
+
+                  {/* ── L&D History ── */}
+                  {ldHistory && (ldHistory.onboarding || ldHistory.cycle_entries.length > 0) && (
+                    <div style={{
+                      position: 'relative', zIndex: 2,
+                      padding: '10px 16px',
+                      borderBottom: '1px solid var(--color-border)',
+                    }}>
+                      <p style={{
+                        fontFamily: 'var(--font-mono)', fontSize: '7.5px',
+                        letterSpacing: '0.18em', color: 'var(--color-text-dim)',
+                        marginBottom: 8,
+                      }}>
+                        L&amp;D TRAINING RECORD
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+
+                        {/* Onboarding report */}
+                        {ldHistory.onboarding && (
+                          <button
+                            onClick={() => setOpenReport({
+                              filename: ldHistory.onboarding.filename,
+                              isOnboarding: true,
+                              title: `${agent!.name} — Onboarding Report`,
+                            })}
+                            style={{
+                              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                              padding: '7px 10px', borderRadius: 3, cursor: 'pointer',
+                              backgroundColor: 'hsl(262 80% 64% / 0.06)',
+                              border: '1px solid hsl(262 80% 64% / 0.2)',
+                              textAlign: 'left', transition: 'all 0.12s',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.borderColor = 'hsl(262 80% 64% / 0.45)'}
+                            onMouseLeave={e => e.currentTarget.style.borderColor = 'hsl(262 80% 64% / 0.2)'}
+                          >
+                            <GraduationCap size={11} style={{ color: 'hsl(262 80% 64%)', flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <p style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', color: 'hsl(262 80% 64%)' }}>
+                                ONBOARDING REPORT
+                              </p>
+                              <p style={{ fontFamily: 'var(--font-mono)', fontSize: '8px', color: 'var(--color-text-dim)' }}>
+                                {ldHistory.onboarding.date}
+                              </p>
+                            </div>
+                            <ChevronRight size={11} style={{ color: 'hsl(262 80% 64%)', flexShrink: 0 }} />
+                          </button>
+                        )}
+
+                        {/* Cycle reports */}
+                        {ldHistory.cycle_entries.slice(0, 3).map((entry: any) => (
+                          <button
+                            key={entry.filename}
+                            onClick={() => setOpenReport({
+                              filename: entry.filename,
+                              isOnboarding: false,
+                              title: `${agent!.name} — ${entry.date}`,
+                            })}
+                            style={{
+                              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                              padding: '7px 10px', borderRadius: 3, cursor: 'pointer',
+                              backgroundColor: 'var(--color-surface-raised)',
+                              border: '1px solid var(--color-border)',
+                              textAlign: 'left', transition: 'all 0.12s',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.borderColor = 'hsl(189 100% 50% / 0.35)'}
+                            onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
+                          >
+                            <GraduationCap size={11} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <p style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', color: 'var(--color-text-muted)' }}>
+                                L&amp;D CYCLE
+                              </p>
+                              <p style={{ fontFamily: 'var(--font-mono)', fontSize: '8px', color: 'var(--color-text-dim)' }}>
+                                {entry.date}
+                              </p>
+                            </div>
+                            <ChevronRight size={11} style={{ color: 'var(--color-text-dim)', flexShrink: 0 }} />
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
 

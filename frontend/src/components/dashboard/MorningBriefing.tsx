@@ -4,7 +4,7 @@ import {
   Bell, AlertCircle, MessageSquare, GitBranch, UserPlus, Map,
   Activity, TrendingUp, CheckCircle2, Zap, GraduationCap,
   Users, ChevronRight, ChevronDown, Award, Radio, Cpu,
-  Shield, Wifi, WifiOff,
+  Wifi, WifiOff,
 } from 'lucide-react'
 import { useColonyStore } from '../../stores/colonyStore'
 import { useUIStore } from '../../stores/uiStore'
@@ -13,6 +13,7 @@ import { useActivityStore } from '../../stores/activityStore'
 import { useLDStore } from '../../stores/ldStore'
 import { departmentColors, departmentLabels } from '../../lib/departments'
 import { getModelLabel } from '../../lib/models'
+import { ReportModal } from '../ld/ReportModal'
 import { connectSocket, api } from '../../lib/api'
 import type { Department } from '../../types/agent'
 
@@ -83,7 +84,15 @@ export function MorningBriefing() {
   const ldStore = useLDStore()
   const [backendOnline, setBackendOnline] = useState(false)
   const [expandedDept, setExpandedDept] = useState<string | null>(null)
+  const [recentReports, setRecentReports] = useState<any[]>([])
+  const [openReport, setOpenReport] = useState<{ filename: string; title: string } | null>(null)
   const clock = useClock()
+
+  useEffect(() => {
+    api.get('/api/ld/reports')
+      .then((data: any[]) => setRecentReports(data.slice(0, 3)))
+      .catch(() => {})
+  }, [])
 
   React.useEffect(() => {
     api.get('/health')
@@ -931,6 +940,49 @@ export function MorningBriefing() {
               )}
             </div>
           </div>
+
+          {/* Recent cycle reports */}
+          {recentReports.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <SectionLabel>Recent Reports</SectionLabel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {recentReports.map(r => (
+                  <button
+                    key={r.filename}
+                    onClick={() => setOpenReport({ filename: r.filename, title: `L&D Cycle — ${r.date} ${r.time}` })}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '7px 10px', borderRadius: 3, cursor: 'pointer',
+                      backgroundColor: 'var(--color-surface)',
+                      border: '1px solid var(--color-border)',
+                      textAlign: 'left', transition: 'all 0.12s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = 'hsl(262 80% 64% / 0.35)'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
+                  >
+                    <GraduationCap size={10} style={{ color: 'hsl(262 80% 64%)', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontFamily: 'var(--font-mono)', fontSize: '8.5px', color: 'var(--color-text-muted)', letterSpacing: '0.06em' }}>
+                        {r.date} {r.time}
+                      </p>
+                      <p style={{ fontFamily: 'var(--font-mono)', fontSize: '7.5px', color: 'var(--color-text-dim)' }}>
+                        {r.colonists_reviewed} reviewed · {r.skill_updates} skill updates
+                      </p>
+                    </div>
+                    <ChevronRight size={10} style={{ color: 'var(--color-text-dim)', flexShrink: 0 }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {openReport && (
+            <ReportModal
+              filename={openReport.filename}
+              title={openReport.title}
+              onClose={() => setOpenReport(null)}
+            />
+          )}
 
           {/* Workforce Breakdown */}
           <div>
