@@ -325,12 +325,27 @@ async def _run_mission_inner(
 
     await on_message({"type": "status", "text": f"Mission received. Routing to {executive['name']}...", "timestamp": _ts()})
 
-    # Build department roster for ARIA's awareness
+    # Build department roster + worker list for ARIA's awareness
     managers = [a for a in agents if a.get("tier") == "manager"]
+    workers  = [a for a in agents if a.get("tier") == "worker"]
+
     dept_roster = "\n".join(
         f"  - {m.get('department', '').title()} Department — {m['name']} ({m.get('role', '')})"
         for m in managers
     )
+
+    worker_roster = ""
+    if workers:
+        worker_lines = []
+        for w in workers:
+            mgr = next((m for m in managers if m["id"] == w.get("manager_id") or m["id"] == w.get("managerId")), None)
+            mgr_name = mgr["name"] if mgr else "N/A"
+            skills_str = ", ".join(s["name"] for s in (w.get("skills") or [])) or "general"
+            worker_lines.append(
+                f"  - {w['name']} ({w.get('role', 'Worker')}, {w.get('department', '').title()} dept) "
+                f"→ reports to {mgr_name} | skills: {skills_str}"
+            )
+        worker_roster = "\n\nCURRENT WORKERS:\n" + "\n".join(worker_lines)
 
     # Step 1 — Executive plans
     exec_prompt = f"""A new mission has arrived from the Founder.
@@ -340,7 +355,7 @@ MISSION DESCRIPTION: {mission['description']}
 PRIORITY: {mission.get('priority', 'normal').upper()}
 
 AVAILABLE DEPARTMENTS:
-{dept_roster}
+{dept_roster}{worker_roster}
 
 Your responsibilities:
 1. Acknowledge the mission in one sentence

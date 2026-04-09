@@ -1,11 +1,12 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect, useRef } from 'react'
-import { X, Award, ShieldAlert, Star, GraduationCap, ChevronRight, Send, Loader2 } from 'lucide-react'
+import { X, Award, ShieldAlert, Star, GraduationCap, ChevronRight, Send, Loader2, History } from 'lucide-react'
 import { StrikeModal } from '../hr/StrikeModal'
 import { RewardModal } from '../hr/RewardModal'
 import { ReportModal } from '../ld/ReportModal'
 import { useColonyStore } from '../../stores/colonyStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useTrainingStore } from '../../stores/trainingStore'
 import { departmentColors, departmentLabels } from '../../lib/departments'
 import { getModelLabel } from '../../lib/models'
 import { api, connectSocket } from '../../lib/api'
@@ -147,6 +148,7 @@ const STATUS_COLORS: Record<string, string> = {
 export function AgentProfilePanel() {
   const { agents, colony } = useColonyStore()
   const { activePanel, selectedAgentId, setActivePanel, setSelectedAgent } = useUIStore()
+  const { addSession, getSessionsForAgent } = useTrainingStore()
   const [showStrike, setShowStrike] = useState(false)
   const [showReward, setShowReward] = useState(false)
   const [ldHistory, setLdHistory] = useState<{ cycle_entries: any[], onboarding: any | null } | null>(null)
@@ -154,6 +156,7 @@ export function AgentProfilePanel() {
   const [ldInput, setLdInput] = useState('')
   const [ldLoading, setLdLoading] = useState(false)
   const [ldMessages, setLdMessages] = useState<{ role: 'founder' | 'nova'; content: string }[]>([])
+  const [ldShowHistory, setLdShowHistory] = useState(false)
   const ldChatRef = useRef<HTMLDivElement>(null)
 
   const agent = agents.find(a => a.id === selectedAgentId)
@@ -168,7 +171,7 @@ export function AgentProfilePanel() {
   }, [agent?.id, isOpen])
 
   // Reset L&D chat when agent changes
-  useEffect(() => { setLdMessages([]); setLdInput('') }, [agent?.id])
+  useEffect(() => { setLdMessages([]); setLdInput(''); setLdShowHistory(false) }, [agent?.id])
 
   // Scroll L&D chat to bottom when new messages arrive
   useEffect(() => {
@@ -185,9 +188,18 @@ export function AgentProfilePanel() {
     socket.emit('ld_direct', { message: msg, target_agent: agent.name })
     const handler = (ev: any) => {
       if (ev.type === 'ld_direct_response') {
-        setLdMessages(prev => [...prev, { role: 'nova', content: ev.content }])
+        const novaResponse = ev.content as string
+        setLdMessages(prev => [...prev, { role: 'nova', content: novaResponse }])
         setLdLoading(false)
         socket.off('colony_event', handler)
+        // Persist the session to training history
+        addSession({
+          agentId: agent.id,
+          agentName: agent.name,
+          timestamp: new Date().toISOString(),
+          founderMessage: msg,
+          novaResponse,
+        })
       }
     }
     socket.on('colony_event', handler)
@@ -672,7 +684,26 @@ export function AgentProfilePanel() {
                         }}>
                           TRAIN WITH NOVA
                         </p>
-                        {ldMessages.length > 0 && (
+                        {/* History toggle */}
+                        {agent && getSessionsForAgent(agent.id).length > 0 && (
+                          <button
+                            onClick={() => setLdShowHistory(h => !h)}
+                            title={ldShowHistory ? 'Show current session' : 'View training history'}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 4,
+                              background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px',
+                              borderRadius: 4,
+                              backgroundColor: ldShowHistory ? 'hsl(262 80% 64% / 0.12)' : 'transparent',
+                              color: ldShowHistory ? 'hsl(262 80% 64%)' : 'var(--color-text-dim)',
+                            }}
+                          >
+                            <History size={10} />
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '8px', letterSpacing: '0.1em' }}>
+                              {getSessionsForAgent(agent.id).length} SESSION{getSessionsForAgent(agent.id).length !== 1 ? 'S' : ''}
+                            </span>
+                          </button>
+                        )}
+                        {ldMessages.length > 0 && !ldShowHistory && (
                           <span style={{
                             fontFamily: 'var(--font-mono)', fontSize: '8px',
                             color: 'var(--color-text-dim)', opacity: 0.5,
@@ -682,8 +713,73 @@ export function AgentProfilePanel() {
                         )}
                       </div>
 
-                      {/* Chat transcript */}
-                      {ldMessages.length > 0 && (
+                      {/* ── History view ── */}
+                      {ldShowHistory && agent && (() => {
+                        const sessions = getSessionsForAgent(agent.id)
+                        return (
+                          <div style={{
+                            maxHeight: 380, overflowY: 'auto',
+                            borderTop: '1px solid var(--color-border)',
+                          }}>
+                            {sessions.map((s, si) => (
+                              <div key={s.id} style={{
+                                borderBottom: si < sessions.length - 1 ? '1px solid var(--color-border)' : 'none',
+                              }}>
+                                {/* Session timestamp */}
+                                <div style={{
+                                  padding: '8px 16px 4px',
+                                  backgroundColor: 'hsl(215 22% 5%)',
+                                  display: 'flex', alignItems: 'center', gap: 6,
+                                }}>
+                                  <History size={9} style={{ color: 'var(--color-text-dim)', flexShrink: 0 }} />
+                                  <span style={{
+                                    fontFamily: 'var(--font-mono)', fontSize: '8px',
+                                    color: 'var(--color-text-dim)', letterSpacing: '0.1em',
+                                  }}>
+                                    {new Date(s.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    {' · '}
+                                    {new Date(s.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                                {/* Founder message */}
+                                <div style={{
+                                  padding: '8px 16px',
+                                  backgroundColor: 'hsl(189 100% 50% / 0.04)',
+                                }}>
+                                  <p style={{
+                                    fontFamily: 'var(--font-mono)', fontSize: '8px',
+                                    letterSpacing: '0.12em', color: 'var(--color-primary)',
+                                    marginBottom: 4, fontWeight: 700,
+                                  }}>FOUNDER</p>
+                                  <p style={{
+                                    fontFamily: 'var(--font-body)', fontSize: '12px',
+                                    color: 'var(--color-text-muted)', lineHeight: 1.5,
+                                    whiteSpace: 'pre-wrap',
+                                  }}>{s.founderMessage}</p>
+                                </div>
+                                {/* NOVA response */}
+                                <div style={{ padding: '8px 16px' }}>
+                                  <p style={{
+                                    fontFamily: 'var(--font-mono)', fontSize: '8px',
+                                    letterSpacing: '0.12em', color: 'hsl(262 80% 64%)',
+                                    marginBottom: 4, fontWeight: 700,
+                                  }}>NOVA</p>
+                                  <p style={{
+                                    fontFamily: 'var(--font-body)', fontSize: '12px',
+                                    color: 'var(--color-text-primary)', lineHeight: 1.5,
+                                    whiteSpace: 'pre-wrap',
+                                  }}>
+                                    {s.novaResponse.replace(/\*\*/g, '').replace(/\*/g, '').replace(/^#+\s+/gm, '').trim()}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })()}
+
+                      {/* Chat transcript (current session) */}
+                      {!ldShowHistory && ldMessages.length > 0 && (
                         <div
                           ref={ldChatRef}
                           style={{
@@ -694,7 +790,6 @@ export function AgentProfilePanel() {
                         >
                           {ldMessages.map((m, i) => {
                             const isFounder = m.role === 'founder'
-                            // Strip markdown asterisks/hashes from NOVA's responses
                             const clean = m.content
                               .replace(/\*\*/g, '')
                               .replace(/\*/g, '')

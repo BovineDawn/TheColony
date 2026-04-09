@@ -298,6 +298,30 @@ async def new_hire_onboarding(sid, data):
             )
             db.add(new_a)
             db.commit()
+
+            # Notify ARIA about the new hire so she knows the team roster
+            ts_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+            manager_id = agent_data.get('managerId')
+            manager_name = 'N/A'
+            if manager_id:
+                mgr = db.query(AgentModel).filter(AgentModel.id == manager_id).first()
+                if mgr:
+                    manager_name = mgr.name
+
+            hire_note = (
+                f"\n[NEW HIRE — {ts_str}] {agent_data['name']} ({agent_data['role']}, "
+                f"{agent_data.get('department', '').title()} dept) joined the colony. "
+                f"Reports to: {manager_name}. "
+                f"Skills: {', '.join(s['name'] for s in agent_data.get('skills', [])) or 'none yet'}."
+            )
+            aria = db.query(AgentModel).filter(
+                AgentModel.tier == 'executive',
+                AgentModel.is_founder == False,
+                AgentModel.is_active == True,
+            ).first()
+            if aria:
+                aria.memory_context = ((aria.memory_context or '') + hire_note)[-4000:]
+                db.commit()
     except Exception:
         pass
     finally:
