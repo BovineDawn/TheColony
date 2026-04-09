@@ -70,7 +70,7 @@ export function AppShell() {
   }, [backendOnline])
 
   return (
-    <div className="fixed inset-0 flex" style={{ backgroundColor: 'var(--color-background)', position: 'relative' }}>
+    <div className="fixed inset-0 flex" style={{ backgroundColor: 'var(--color-background)' }}>
       {/* Global scanline overlay */}
       <div style={{
         position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9998,
