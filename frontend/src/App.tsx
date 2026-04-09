@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { useColonyStore } from './stores/colonyStore'
 import { IntroScreen } from './components/onboarding/IntroScreen'
 import { FoundingWizard } from './components/onboarding/FoundingWizard'
+import { DepartmentSelector } from './components/onboarding/DepartmentSelector'
 import { OnboardingFlow } from './components/onboarding/OnboardingFlow'
 import { AppShell } from './components/layout/AppShell'
+import type { Department } from './types/agent'
 
-type AppPhase = 'intro' | 'founding' | 'onboarding' | 'active'
+type AppPhase = 'intro' | 'founding' | 'dept-select' | 'onboarding' | 'active'
 
 export default function App() {
   const { colony } = useColonyStore()
@@ -16,12 +18,20 @@ export default function App() {
     return 'active'
   })
 
+  const [selectedDepts, setSelectedDepts] = useState<Department[]>([])
+
+  const handleDeptsChosen = (depts: Department[]) => {
+    setSelectedDepts(depts)
+    setPhase('onboarding')
+  }
+
   return (
     <>
-      {phase === 'intro'       && <IntroScreen      onComplete={() => setPhase('founding')}   />}
-      {phase === 'founding'    && <FoundingWizard   onComplete={() => setPhase('onboarding')} />}
-      {phase === 'onboarding'  && <OnboardingFlow   onComplete={() => setPhase('active')}     />}
-      {phase === 'active'      && <AppShell />}
+      {phase === 'intro'        && <IntroScreen        onComplete={() => setPhase('founding')}        />}
+      {phase === 'founding'     && <FoundingWizard     onComplete={() => setPhase('dept-select')}     />}
+      {phase === 'dept-select'  && <DepartmentSelector onComplete={handleDeptsChosen}                 />}
+      {phase === 'onboarding'   && <OnboardingFlow     selectedDepartments={selectedDepts} onComplete={() => setPhase('active')} />}
+      {phase === 'active'       && <AppShell />}
     </>
   )
 }

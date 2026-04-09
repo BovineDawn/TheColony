@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/screenshots/intro.png" alt="The Colony — Founding Day" width="100%"/>
+<img src="docs/screenshots/intro1.png" alt="The Colony — Founding Day" width="100%"/>
 
 # 🌌 The Colony
 

@@ -37,7 +37,7 @@ function loadPrefs(): Record<string, AIModel> {
 }
 
 export function SettingsPanel() {
-  const { colony, agents, updateColony, updateAgent, reset } = useColonyStore()
+  const { colony, agents, updateColony, updateAgent } = useColonyStore()
   const { clearEvents } = useActivityStore()
   const { clearHistory } = useMissionHistoryStore()
 
@@ -78,25 +78,18 @@ export function SettingsPanel() {
     })
   }
 
-  const handleReset = () => {
-    if (window.confirm('Reset the entire colony? This cannot be undone.')) {
-      // Clear every persisted store so the app boots fresh from the intro screen
-      const STORE_KEYS = [
-        'the-colony-store',
-        'the-colony-hr-store',
-        'the-colony-activity',
-        'the-colony-ld',
-        'the-colony-mission-history',
-        'the-colony-training',
-        PREF_KEY,
-      ]
-      STORE_KEYS.forEach(k => localStorage.removeItem(k))
+  const handleReset = async () => {
+    if (!window.confirm('Reset the entire colony? This cannot be undone.')) return
 
-      // Also reset backend DB if reachable
-      api.post('/api/agents/reset').catch(() => {/* backend offline */})
+    // Reset backend DB first (await so DB is clear before we reload)
+    try {
+      await api.post('/api/agents/reset', {})
+    } catch {/* backend offline — frontend-only reset */}
 
-      window.location.reload()
-    }
+    // Wipe all persisted stores (localStorage.clear() is thorough)
+    localStorage.clear()
+
+    window.location.reload()
   }
 
   const sectionHeader = (label: string) => (

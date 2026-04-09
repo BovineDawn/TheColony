@@ -119,16 +119,22 @@ const FOUNDING_CANDIDATES: FoundingCandidate[] = [
 
 interface OnboardingFlowProps {
   onComplete: () => void
+  selectedDepartments?: Department[]
 }
 
-export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
+export function OnboardingFlow({ onComplete, selectedDepartments }: OnboardingFlowProps) {
+  // Filter to only selected departments (or all if none specified — backwards compat)
+  const activeCandidates = selectedDepartments && selectedDepartments.length > 0
+    ? FOUNDING_CANDIDATES.filter(c => selectedDepartments.includes(c.department))
+    : FOUNDING_CANDIDATES
+
   const [hireIndex, setHireIndex] = useState(0)
   const [showComplete, setShowComplete] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedOverride, setGeneratedOverride] = useState<Pick<FoundingCandidate, 'name' | 'personalityNote' | 'skills' | 'recommendation'> | null>(null)
   const { addAgent, updateAgent, updateColony } = useColonyStore()
 
-  const template = FOUNDING_CANDIDATES[hireIndex]
+  const template = activeCandidates[hireIndex]
   const empNumber = hireIndex + 2
 
   const currentCandidate: FoundingCandidate = generatedOverride
@@ -136,7 +142,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     : template
 
   const generateCandidate = useCallback(async (index: number) => {
-    const t = FOUNDING_CANDIDATES[index]
+    const t = activeCandidates[index] // activeCandidates is stable (derived from props)
     setIsGenerating(true)
     setGeneratedOverride(null)
     try {
@@ -206,7 +212,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       socket.emit('new_hire_onboarding', { agent: newAgent })
     } catch { /* backend offline — skills will be reviewed on first L&D cycle */ }
 
-    if (hireIndex < FOUNDING_CANDIDATES.length - 1) {
+    if (hireIndex < activeCandidates.length - 1) {
       setHireIndex((i) => i + 1)
     } else {
       setShowComplete(true)
@@ -223,36 +229,91 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   return (
     <div className="fixed inset-0 flex flex-col items-center justify-center gap-8"
-      style={{ backgroundColor: 'var(--color-background)' }}>
+      style={{ backgroundColor: 'var(--color-background)', overflow: 'hidden' }}>
+
+      {/* Scanline */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.1) 3px, rgba(0,0,0,0.1) 4px)',
+        zIndex: 50,
+      }} />
 
       <div className="absolute inset-0 pointer-events-none"
         style={{
-          backgroundImage: `linear-gradient(var(--color-primary) 1px, transparent 1px), linear-gradient(90deg, var(--color-primary) 1px, transparent 1px)`,
-          backgroundSize: '64px 64px',
-          opacity: 0.04,
+          backgroundImage: `linear-gradient(hsl(42 65% 52% / 0.04) 1px, transparent 1px), linear-gradient(90deg, hsl(42 65% 52% / 0.04) 1px, transparent 1px)`,
+          backgroundSize: '80px 80px',
         }}
       />
 
       {/* Progress indicator */}
-      <div className="relative z-10 flex flex-col items-center gap-3">
-        <p className="font-mono text-xs tracking-widest uppercase"
-          style={{ color: 'var(--color-text-muted)' }}>
-          Founding Hires — {hireIndex + 1} of {FOUNDING_CANDIDATES.length}
-        </p>
-        <div className="flex gap-2">
-          {FOUNDING_CANDIDATES.map((_, i) => (
-            <div key={i}
-              className="h-1 w-8 rounded-full transition-all duration-500"
-              style={{
-                backgroundColor: i < hireIndex
-                  ? 'var(--color-primary)'
-                  : i === hireIndex
-                    ? 'var(--color-primary)'
-                    : 'var(--color-border)',
-                opacity: i < hireIndex ? 0.5 : 1,
-              }}
-            />
-          ))}
+      <div className="relative z-10 flex flex-col items-center gap-4">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 12, height: 12,
+            border: '2px solid var(--color-amber)',
+            transform: 'rotate(45deg)',
+            boxShadow: '0 0 8px hsl(42 65% 52% / 0.5)',
+          }} />
+          <span style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '11px',
+            letterSpacing: '0.35em',
+            color: 'var(--color-amber)',
+            fontWeight: 700,
+          }}>
+            FOUNDING DEPARTMENT REVIEW
+          </span>
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '10px',
+            letterSpacing: '0.15em',
+            color: 'hsl(42 65% 52% / 0.4)',
+          }}>
+            {hireIndex + 1}/{activeCandidates.length}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+          {activeCandidates.map((c, i) => {
+            const approved = i < hireIndex
+            const active = i === hireIndex
+            const deptColor = {
+              executive: 'hsl(42 65% 52%)',
+              engineering: 'hsl(199 89% 48%)',
+              research: 'hsl(262 52% 47%)',
+              writing: 'hsl(145 63% 42%)',
+              legal: 'hsl(24 100% 50%)',
+              ld: 'hsl(330 65% 52%)',
+            }[c.department] || 'var(--color-primary)'
+            return (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, width: 56 }}>
+                <div style={{
+                  height: 2,
+                  width: '100%',
+                  backgroundColor: approved
+                    ? deptColor
+                    : active
+                      ? deptColor
+                      : 'hsl(42 65% 52% / 0.12)',
+                  opacity: approved ? 0.5 : 1,
+                  boxShadow: active ? `0 0 8px ${deptColor}88` : 'none',
+                  transition: 'all 0.4s',
+                }} />
+                <span style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '8px',
+                  letterSpacing: '0.1em',
+                  color: approved
+                    ? `${deptColor}66`
+                    : active
+                      ? deptColor
+                      : 'hsl(42 65% 52% / 0.2)',
+                  transition: 'color 0.4s',
+                }}>
+                  {c.name}
+                </span>
+              </div>
+            )
+          })}
         </div>
       </div>
 
@@ -264,17 +325,25 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="flex flex-col items-center justify-center gap-4 rounded-xl p-12"
                 style={{
-                  backgroundColor: 'hsl(215 22% 8%)',
-                  border: '1px solid hsl(215 22% 16%)',
-                  minHeight: 320,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 16,
+                  minHeight: 340,
+                  border: '1px solid hsl(42 65% 52% / 0.15)',
+                  backgroundColor: 'var(--color-surface)',
                 }}
               >
-                <Loader2 size={24} className="animate-spin" style={{ color: 'hsl(42 65% 52%)' }} />
-                <p className="font-mono text-xs tracking-widest uppercase"
-                  style={{ color: 'hsl(215 22% 40%)' }}>
-                  Generating candidate...
+                <Loader2 size={20} className="animate-spin" style={{ color: 'hsl(42 65% 52% / 0.6)' }} />
+                <p style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '10px',
+                  letterSpacing: '0.3em',
+                  color: 'hsl(42 65% 52% / 0.4)',
+                }}>
+                  ACCESSING PERSONNEL FILE...
                 </p>
               </motion.div>
             ) : (
@@ -292,21 +361,41 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             key="complete"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="relative z-10 text-center flex flex-col items-center gap-4"
+            className="relative z-10 text-center flex flex-col items-center gap-6"
           >
-            <div className="w-16 h-16 border-2 rotate-45 flex items-center justify-center"
-              style={{
-                borderColor: 'var(--color-primary)',
-                boxShadow: 'var(--shadow-glow-primary)',
-              }}>
-              <span className="rotate-[-45deg] text-2xl" style={{ color: 'var(--color-primary)' }}>✦</span>
+            <div style={{
+              width: 64, height: 64,
+              border: '2px solid var(--color-amber)',
+              transform: 'rotate(45deg)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 0 40px hsl(42 65% 52% / 0.5)',
+            }}>
+              <span style={{ transform: 'rotate(-45deg)', fontSize: '1.5rem', color: 'var(--color-amber)' }}>✦</span>
             </div>
-            <h2 className="font-heading text-3xl" style={{ color: 'var(--color-text-primary)' }}>
-              Colony Online
-            </h2>
-            <p className="font-mono text-sm" style={{ color: 'var(--color-primary)' }}>
-              7 founding members ready
-            </p>
+            <div>
+              <h2 style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: '2.5rem',
+                fontWeight: 900,
+                letterSpacing: '0.1em',
+                color: 'var(--color-amber)',
+                textTransform: 'uppercase',
+                textShadow: '0 0 40px hsl(42 65% 52% / 0.4)',
+              }}>
+                Colony Online
+              </h2>
+              <p style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '11px',
+                letterSpacing: '0.3em',
+                color: 'hsl(42 65% 52% / 0.55)',
+                marginTop: 8,
+              }}>
+                {activeCandidates.length + 1} FOUNDING MEMBERS REPORTING FOR DUTY
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

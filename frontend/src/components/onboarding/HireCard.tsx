@@ -16,149 +16,380 @@ const modelLabels: Record<AIModel, string> = {
   'gemini-1.5-pro': 'Gemini 1.5 Pro',
 }
 
+const SKILL_LEVEL_WIDTH: Record<string, string> = {
+  beginner: '30%',
+  intermediate: '55%',
+  advanced: '78%',
+  expert: '100%',
+}
+
 export function HireCard({ candidate, employeeNumber, managerRecommendation, onApprove, onReject }: HireCardProps) {
   const empId = `#${String(employeeNumber).padStart(4, '0')}`
   const deptColor = departmentColors[candidate.department!] || 'var(--color-primary)'
+  const deptLabel = departmentLabels[candidate.department!] || candidate.department
+
+  // First letter of name for mugshot
+  const initial = (candidate.name || '?')[0].toUpperCase()
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 32, scale: 0.96 }}
+      initial={{ opacity: 0, y: 32, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -32, scale: 0.96 }}
+      exit={{ opacity: 0, y: -32, scale: 0.97 }}
       transition={{ duration: 0.5, ease: 'easeOut' }}
-      className="w-full max-w-lg flex flex-col gap-5 p-6"
       style={{
+        width: '100%',
+        maxWidth: 480,
         backgroundColor: 'var(--color-surface)',
-        border: `1px solid ${deptColor}44`,
-        borderRadius: '16px',
-        boxShadow: `0 0 40px ${deptColor}18`,
+        border: `1px solid hsl(42 65% 52% / 0.2)`,
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
-      {/* Dept color stripe */}
-      <div className="h-0.5 w-full rounded-full" style={{ backgroundColor: deptColor }} />
+      {/* Corner brackets */}
+      {([
+        { top: -1, left: -1 },
+        { top: -1, right: -1 },
+        { bottom: -1, left: -1 },
+        { bottom: -1, right: -1 },
+      ] as const).map((pos, i) => {
+        const isTop = i < 2
+        const isLeft = i % 2 === 0
+        return (
+          <div key={i} style={{
+            position: 'absolute',
+            ...pos,
+            width: 14, height: 14,
+            borderTop: isTop ? `2px solid ${deptColor}` : 'none',
+            borderBottom: !isTop ? `2px solid ${deptColor}` : 'none',
+            borderLeft: isLeft ? `2px solid ${deptColor}` : 'none',
+            borderRight: !isLeft ? `2px solid ${deptColor}` : 'none',
+            zIndex: 10,
+          }} />
+        )
+      })}
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
-          <p className="font-mono text-xs mb-1.5" style={{ color: deptColor, opacity: 0.8 }}>
-            Candidate {empId}
-          </p>
-          <h2 className="font-heading text-xl" style={{ color: 'var(--color-text-primary)' }}>
-            {candidate.name}
-          </h2>
-          <p className="font-heading text-sm font-medium mt-0.5" style={{ color: deptColor }}>
-            {candidate.role}
-          </p>
+      {/* Department stripe — top */}
+      <div style={{ height: 3, backgroundColor: deptColor, boxShadow: `0 0 12px ${deptColor}88` }} />
+
+      {/* Header: dept label + emp ID */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '10px 20px',
+        backgroundColor: `${deptColor}0D`,
+        borderBottom: `1px solid hsl(42 65% 52% / 0.1)`,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 6, height: 6,
+            backgroundColor: deptColor,
+            borderRadius: 1,
+            boxShadow: `0 0 6px ${deptColor}`,
+          }} />
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '10px',
+            letterSpacing: '0.3em',
+            color: deptColor,
+            fontWeight: 600,
+          }}>
+            {deptLabel?.toUpperCase()}
+          </span>
         </div>
-        <span className="px-3 py-1 rounded-full text-xs font-mono shrink-0"
-          style={{ border: `1px solid ${deptColor}66`, color: deptColor, backgroundColor: `${deptColor}11` }}>
-          {departmentLabels[candidate.department!]}
+        <span style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '10px',
+          letterSpacing: '0.2em',
+          color: 'hsl(42 65% 52% / 0.4)',
+        }}>
+          CANDIDATE {empId}
         </span>
       </div>
 
-      {/* Skills */}
-      <div>
-        <p className="text-xs uppercase tracking-widest mb-2"
-          style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-          Skills
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {candidate.skills?.map((skill) => (
-            <span key={skill.name}
-              className="px-2.5 py-1 text-xs rounded-md"
-              style={{
-                backgroundColor: 'var(--color-surface-raised)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text-primary)',
-              }}>
-              {skill.name}
-              <span className="ml-1.5 font-mono text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                {skill.level}
-              </span>
+      {/* Main body */}
+      <div style={{ display: 'flex', gap: 0 }}>
+
+        {/* Left column: mugshot */}
+        <div style={{
+          width: 110,
+          flexShrink: 0,
+          borderRight: `1px solid hsl(42 65% 52% / 0.1)`,
+          padding: '16px 14px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 10,
+        }}>
+          {/* Mugshot frame */}
+          <div style={{
+            width: 76,
+            height: 84,
+            border: `1px solid hsl(42 65% 52% / 0.25)`,
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: `${deptColor}0A`,
+          }}>
+            {/* Corner ticks */}
+            {[{top:0,left:0},{top:0,right:0},{bottom:0,left:0},{bottom:0,right:0}].map((p, i) => (
+              <div key={i} style={{
+                position: 'absolute',
+                ...p,
+                width: 6, height: 6,
+                borderTop: i < 2 ? `1px solid ${deptColor}` : 'none',
+                borderBottom: i >= 2 ? `1px solid ${deptColor}` : 'none',
+                borderLeft: i % 2 === 0 ? `1px solid ${deptColor}` : 'none',
+                borderRight: i % 2 !== 0 ? `1px solid ${deptColor}` : 'none',
+              }} />
+            ))}
+            <span style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '3rem',
+              fontWeight: 900,
+              color: `${deptColor}50`,
+              lineHeight: 1,
+            }}>
+              {initial}
             </span>
-          ))}
+            {/* Height ruler marks */}
+            <div style={{
+              position: 'absolute',
+              right: -8,
+              top: 0,
+              bottom: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              paddingBlock: 4,
+            }}>
+              {[0,1,2,3,4].map(t => (
+                <div key={t} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                }}>
+                  <div style={{ width: t % 2 === 0 ? 5 : 3, height: 1, backgroundColor: 'hsl(42 65% 52% / 0.2)' }} />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Model badge */}
+          <div style={{
+            padding: '3px 8px',
+            border: `1px solid hsl(42 65% 52% / 0.2)`,
+            backgroundColor: 'var(--color-surface-raised)',
+            textAlign: 'center',
+          }}>
+            <span style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '7.5px',
+              letterSpacing: '0.1em',
+              color: 'hsl(42 65% 52% / 0.4)',
+            }}>
+              {candidate.model ? modelLabels[candidate.model] : candidate.model}
+            </span>
+          </div>
+
+          {/* Barcode */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <div style={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+              {Array.from({ length: 18 }, (_, i) => (
+                <div key={i} style={{
+                  width: i % 3 === 0 ? 2 : 1,
+                  height: i % 4 === 0 ? 16 : 11,
+                  backgroundColor: `${deptColor}35`,
+                }} />
+              ))}
+            </div>
+            <span style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '7px',
+              color: 'hsl(42 65% 52% / 0.2)',
+              letterSpacing: '0.05em',
+            }}>
+              {empId.replace('#', '')}
+            </span>
+          </div>
+        </div>
+
+        {/* Right column: details */}
+        <div style={{ flex: 1, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+          {/* Name + role */}
+          <div>
+            <div style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '1.4rem',
+              fontWeight: 900,
+              color: 'var(--color-text-primary)',
+              letterSpacing: '0.03em',
+              lineHeight: 1.1,
+              textTransform: 'uppercase',
+            }}>
+              {candidate.name}
+            </div>
+            <div style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '10px',
+              color: deptColor,
+              letterSpacing: '0.15em',
+              marginTop: 4,
+              opacity: 0.85,
+            }}>
+              {candidate.role?.toUpperCase()}
+            </div>
+          </div>
+
+          {/* Skills */}
+          <div>
+            <div style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '8px',
+              letterSpacing: '0.3em',
+              color: 'hsl(42 65% 52% / 0.4)',
+              marginBottom: 6,
+            }}>
+              SKILLS
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {candidate.skills?.map((skill) => (
+                <div key={skill.name}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginBottom: 2,
+                  }}>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '10px',
+                      color: 'var(--color-text-primary)',
+                    }}>
+                      {skill.name}
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '8px',
+                      color: 'hsl(42 65% 52% / 0.4)',
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                    }}>
+                      {skill.level}
+                    </span>
+                  </div>
+                  <div style={{
+                    height: 2,
+                    backgroundColor: 'hsl(42 65% 52% / 0.1)',
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      position: 'absolute',
+                      left: 0, top: 0, bottom: 0,
+                      width: SKILL_LEVEL_WIDTH[skill.level] || '50%',
+                      backgroundColor: deptColor,
+                      opacity: 0.7,
+                    }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Personality */}
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '10px',
+            color: 'hsl(215 14% 55%)',
+            lineHeight: 1.6,
+            borderLeft: `2px solid hsl(42 65% 52% / 0.2)`,
+            paddingLeft: 10,
+          }}>
+            {candidate.personalityNote}
+          </div>
         </div>
       </div>
 
-      {/* Sr. Executive recommendation */}
-      <div className="p-4 rounded-lg"
-        style={{
-          backgroundColor: 'var(--color-surface-raised)',
-          border: '1px solid var(--color-border)',
+      {/* Recommendation */}
+      <div style={{
+        margin: '0 18px',
+        padding: '10px 14px',
+        backgroundColor: 'var(--color-surface-raised)',
+        border: `1px solid hsl(42 65% 52% / 0.12)`,
+        borderLeft: `2px solid hsl(42 65% 52% / 0.35)`,
+      }}>
+        <div style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '8px',
+          letterSpacing: '0.25em',
+          color: 'hsl(42 65% 52% / 0.4)',
+          marginBottom: 5,
         }}>
-        <p className="text-xs uppercase tracking-widest mb-1.5 font-mono"
-          style={{ color: 'var(--color-text-muted)' }}>
-          Sr. Executive Recommendation
-        </p>
-        <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-primary)' }}>
+          SR. EXECUTIVE RECOMMENDATION
+        </div>
+        <p style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '10px',
+          color: 'hsl(215 14% 65%)',
+          lineHeight: 1.6,
+        }}>
           {managerRecommendation}
         </p>
       </div>
 
-      {/* Personality */}
-      <div>
-        <p className="text-xs uppercase tracking-widest mb-1 font-mono"
-          style={{ color: 'var(--color-text-muted)' }}>
-          Personality
-        </p>
-        <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-          {candidate.personalityNote}
-        </p>
-      </div>
-
-      {/* Model + footer */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Powered by</span>
-          <span className="px-2 py-0.5 rounded text-xs font-mono"
-            style={{
-              backgroundColor: 'var(--color-surface-raised)',
-              border: '1px solid var(--color-border)',
-              color: 'var(--color-primary)',
-            }}>
-            {candidate.model ? modelLabels[candidate.model] : candidate.model}
-          </span>
-        </div>
-      </div>
-
       {/* Actions */}
-      <div className="flex gap-3 pt-1">
+      <div style={{ display: 'flex', gap: 0, marginTop: 16, borderTop: `1px solid hsl(42 65% 52% / 0.1)` }}>
         <button
           onClick={() => onApprove(candidate)}
-          className="flex-1 py-3 font-heading font-semibold text-sm tracking-wide transition-all"
           style={{
-            backgroundColor: 'var(--color-primary)',
-            color: 'var(--color-background)',
-            borderRadius: '8px',
+            flex: 1,
+            padding: '14px',
+            backgroundColor: `${deptColor}18`,
             border: 'none',
-            boxShadow: 'var(--shadow-glow-primary)',
+            borderRight: `1px solid hsl(42 65% 52% / 0.1)`,
+            color: deptColor,
+            fontFamily: 'var(--font-display)',
+            fontSize: '13px',
+            fontWeight: 700,
+            letterSpacing: '0.25em',
+            textTransform: 'uppercase',
             cursor: 'pointer',
+            transition: 'background-color 0.15s',
           }}
-          onMouseEnter={(e) => e.currentTarget.style.opacity = '0.85'}
-          onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${deptColor}30`}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = `${deptColor}18`}
         >
-          Approve Hire
+          ✓ Approve
         </button>
         <button
           onClick={onReject}
-          className="flex-1 py-3 font-heading font-semibold text-sm tracking-wide transition-all"
           style={{
+            flex: 1,
+            padding: '14px',
             backgroundColor: 'transparent',
-            border: '1px solid var(--color-danger)',
-            color: 'var(--color-danger)',
-            borderRadius: '8px',
+            border: 'none',
+            color: 'hsl(0 72% 51% / 0.6)',
+            fontFamily: 'var(--font-display)',
+            fontSize: '13px',
+            fontWeight: 700,
+            letterSpacing: '0.25em',
+            textTransform: 'uppercase',
             cursor: 'pointer',
+            transition: 'background-color 0.15s',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'var(--color-danger)'
-            e.currentTarget.style.color = 'white'
+            e.currentTarget.style.backgroundColor = 'hsl(0 72% 51% / 0.08)'
+            e.currentTarget.style.color = 'hsl(0 72% 60%)'
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.backgroundColor = 'transparent'
-            e.currentTarget.style.color = 'var(--color-danger)'
+            e.currentTarget.style.color = 'hsl(0 72% 51% / 0.6)'
           }}
         >
-          Request New Candidate
+          ✕ New Candidate
         </button>
       </div>
     </motion.div>
