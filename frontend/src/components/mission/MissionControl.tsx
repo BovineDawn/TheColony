@@ -985,7 +985,7 @@ export function MissionControl() {
                   border: '1px solid var(--color-border)',
                   color: 'var(--color-text-primary)',
                 }}
-                onFocus={e => e.currentTarget.style.borderColor = \'var(--color-amber)\'}
+                onFocus={e => e.currentTarget.style.borderColor = 'var(--color-amber)'}
                 onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
               />
               <select
